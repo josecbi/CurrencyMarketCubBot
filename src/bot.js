@@ -17,7 +17,7 @@ const {
 const SELL_STEPS = [
     {
         key: 'currency',
-        prompt: '💱 Which currency do you want to sell? (e.g. USD, EUR, GBP)',
+        prompt: '💱 Which currency do you want to sell? (e.g. USD, EUR, USDT)',
     },
     {
         key: 'price',
@@ -36,7 +36,7 @@ const SELL_STEPS = [
 const BUY_STEPS = [
     {
         key: 'currency',
-        prompt: '💱 Which currency do you want to buy? (e.g. USD, EUR, GBP)',
+        prompt: '💱 Which currency do you want to buy? (e.g. USD, EUR, USDT)',
     },
     {
         key: 'price',
@@ -48,7 +48,7 @@ const BUY_STEPS = [
     },
     {
         key: 'transactionType',
-        prompt: '🤝 What type of transaction do you accept? (bank transfer, cash, P2P, etc.)',
+        prompt: '🤝 What type of transaction do you accept? (bank transfer, cash, etc.)',
     },
 ];
 
