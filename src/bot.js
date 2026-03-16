@@ -641,6 +641,7 @@ function createBot(token) {
     };
 
     bot.start(async (ctx) => {
+        clearActiveForm(ctx);
         await ctx.reply(START_MESSAGE, MAIN_MENU_KEYBOARD);
         await handleHelp(ctx);
     });
@@ -712,6 +713,11 @@ function createBot(token) {
             const state = getSessionState(ctx);
 
             if (state.form && menuAction !== 'cancel') {
+                if (menuAction === 'sell' || menuAction === 'buy') {
+                    await startFlow(ctx, menuAction);
+                    return;
+                }
+
                 await ctx.reply(
                     'You are filling out a form now. Finish it or tap "❌ Cancel form".',
                     MAIN_MENU_KEYBOARD
