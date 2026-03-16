@@ -78,6 +78,9 @@ async function start() {
             }
 
             try {
+                const updateId = req.body?.update_id;
+                const msgType = req.body?.message ? 'message' : (req.body?.callback_query ? 'callback' : 'other');
+                console.log(`[webhook] update_id=${updateId} type=${msgType}`);
                 await bot.handleUpdate(req.body);
                 res.sendStatus(200);
             } catch (error) {

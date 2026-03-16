@@ -503,6 +503,21 @@ function createBot(token) {
 
     bot.use(session({ defaultSession: () => ({ form: null }) }));
 
+    // Global diagnostic middleware — logs every incoming update
+    bot.use(async (ctx, next) => {
+        const updateType = ctx.updateType;
+        const text = ctx.message?.text || '';
+        const chatType = ctx.chat?.type || 'unknown';
+        const userId = ctx.from?.id || 'unknown';
+        console.log(`[update] type=${updateType} chat=${chatType} user=${userId} text=${JSON.stringify(text.slice(0, 60))}`);
+        try {
+            await next();
+        } catch (err) {
+            console.error(`[update-error] type=${updateType} user=${userId}`, err);
+            throw err;
+        }
+    });
+
     const showMenu = async (ctx, intro = 'Choose an option below:') => {
         await ctx.reply(intro, MAIN_MENU_KEYBOARD);
     };
@@ -674,6 +689,7 @@ function createBot(token) {
         const menuAction = BUTTON_ACTION_MAP.get(text);
 
         if (menuAction) {
+            console.log(`[menu-action] action=${menuAction} user=${ctx.from?.id}`);
             const state = getSessionState(ctx);
 
             if (state.form && menuAction !== 'cancel') {
@@ -708,7 +724,8 @@ function createBot(token) {
     });
 
     bot.catch((error) => {
-        console.error('Bot error:', error);
+        console.error('Bot error (unhandled):', error?.message || error);
+        if (error?.stack) console.error(error.stack);
     });
 
     return bot;
