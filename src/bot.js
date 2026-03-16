@@ -1,4 +1,4 @@
-const { Telegraf, session } = require('telegraf');
+const { Telegraf, session, Markup } = require('telegraf');
 const {
     addListing,
     getActiveListings,
@@ -49,16 +49,59 @@ const BUY_STEPS = [
     },
 ];
 
+const MENU_BUTTONS = {
+    sell: '🟢 Sell currency',
+    buy: '🔵 Buy currency',
+    market: '📊 Browse market',
+    myListings: '🗂 My listings',
+    help: '❓ Help',
+    cancel: '❌ Cancel form',
+};
+
+const MAIN_MENU_KEYBOARD = Markup.keyboard([
+    [MENU_BUTTONS.sell, MENU_BUTTONS.buy],
+    [MENU_BUTTONS.market, MENU_BUTTONS.myListings],
+    [MENU_BUTTONS.help, MENU_BUTTONS.cancel],
+]).resize();
+
+const BUTTON_ACTION_MAP = new Map([
+    [MENU_BUTTONS.sell, 'sell'],
+    [MENU_BUTTONS.buy, 'buy'],
+    [MENU_BUTTONS.market, 'market'],
+    [MENU_BUTTONS.myListings, 'my_listings'],
+    [MENU_BUTTONS.help, 'help'],
+    [MENU_BUTTONS.cancel, 'cancel'],
+]);
+
+const START_MESSAGE = [
+    '👋 Welcome to Currency Exchange Bot!',
+    '',
+    'Quick start:',
+    '1) Tap 🟢 Sell currency to publish a sell offer.',
+    '2) Tap 🔵 Buy currency to publish a buy request.',
+    '3) Tap 📊 Browse market to see current listings.',
+    '4) Tap 🗂 My listings to manage your active posts.',
+    '',
+    'Use the buttons below (you do not need to memorize commands).',
+].join('\n');
+
 const HELP_MESSAGE = [
     '🤖 Currency Exchange Bot',
     '',
-    'Available commands:',
+    'Main actions (buttons):',
+    '• 🟢 Sell currency',
+    '• 🔵 Buy currency',
+    '• 📊 Browse market',
+    '• 🗂 My listings',
+    '',
+    'Commands (optional):',
     '/sell - Post a sell offer',
     '/buy - Post a buy request',
     '/my_listings - View your active listings',
     '/delete <id> - Close a listing',
     '/market - View recent listings',
-    '/cancel - Cancel the current form',
+    '/cancel - Cancel current form',
+    '/menu - Show menu buttons',
     '/help - Show this help message',
     '',
     `Matching looks for exact and near matches (up to ${NEAR_MATCH_PERCENT}% price difference).`,
@@ -199,7 +242,7 @@ function startFlow(ctx, type) {
         ? '✅ Starting your sell listing.'
         : '✅ Starting your buy request.';
 
-    return ctx.reply(`${header}\n\n${flow[0].prompt}`);
+    return ctx.reply(`${header}\n\n${flow[0].prompt}`, MAIN_MENU_KEYBOARD);
 }
 
 async function showMarket(ctx) {
@@ -209,7 +252,7 @@ async function showMarket(ctx) {
     ]);
 
     if (!sells.length && !buys.length) {
-        await ctx.reply('No active listings in the market yet.');
+        await ctx.reply('No active listings in the market yet.', MAIN_MENU_KEYBOARD);
         return;
     }
 
@@ -226,7 +269,7 @@ async function showMarket(ctx) {
         chunks.push('', '🔵 Buy requests', '', ...buyLines);
     }
 
-    await ctx.reply(chunks.join('\n\n'));
+    await ctx.reply(chunks.join('\n\n'), MAIN_MENU_KEYBOARD);
 }
 
 async function notifyUsersForBuy(ctx, buyListing, matches) {
@@ -368,14 +411,14 @@ async function processFlowText(ctx, text) {
 
     if (!current) {
         ctx.session.form = null;
-        await ctx.reply('Form reset for safety. Use /sell or /buy to start again.');
+        await ctx.reply('Form reset for safety. Use /sell or /buy to start again.', MAIN_MENU_KEYBOARD);
         return;
     }
 
     const validation = validateStep(current.key, text);
 
     if (!validation.ok) {
-        await ctx.reply(validation.error);
+        await ctx.reply(validation.error, MAIN_MENU_KEYBOARD);
         return;
     }
 
@@ -383,7 +426,7 @@ async function processFlowText(ctx, text) {
     form.step += 1;
 
     if (form.step < flow.length) {
-        await ctx.reply(flow[form.step].prompt);
+        await ctx.reply(flow[form.step].prompt, MAIN_MENU_KEYBOARD);
         return;
     }
 
@@ -414,7 +457,8 @@ async function processFlowText(ctx, text) {
             summaryDetail,
             '',
             'You can close your listing anytime with /delete <id>.',
-        ].join('\n')
+        ].join('\n'),
+        MAIN_MENU_KEYBOARD
     );
 
     await runMatching(ctx, listing);
@@ -425,41 +469,41 @@ function createBot(token) {
 
     bot.use(session());
 
-    bot.start(async (ctx) => {
-        await ctx.reply(HELP_MESSAGE);
-    });
+    const showMenu = async (ctx, intro = 'Choose an option below:') => {
+        await ctx.reply(intro, MAIN_MENU_KEYBOARD);
+    };
 
-    bot.command('help', async (ctx) => {
-        await ctx.reply(HELP_MESSAGE);
-    });
+    const handleHelp = async (ctx) => {
+        await ctx.reply(HELP_MESSAGE, MAIN_MENU_KEYBOARD);
+    };
 
-    bot.command('sell', async (ctx) => {
+    const handleSell = async (ctx) => {
         await startFlow(ctx, 'sell');
-    });
+    };
 
-    bot.command('buy', async (ctx) => {
+    const handleBuy = async (ctx) => {
         await startFlow(ctx, 'buy');
-    });
+    };
 
-    bot.command('cancel', async (ctx) => {
+    const handleCancel = async (ctx) => {
         if (!ctx.session?.form) {
-            await ctx.reply('You have no active form.');
+            await ctx.reply('You have no active form.', MAIN_MENU_KEYBOARD);
             return;
         }
 
         ctx.session.form = null;
-        await ctx.reply('Form cancelled. Use /sell or /buy whenever you are ready.');
-    });
+        await ctx.reply('Form cancelled. Use /sell or /buy whenever you are ready.', MAIN_MENU_KEYBOARD);
+    };
 
-    bot.command('market', async (ctx) => {
+    const handleMarket = async (ctx) => {
         await showMarket(ctx);
-    });
+    };
 
-    bot.command('my_listings', async (ctx) => {
+    const handleMyListings = async (ctx) => {
         const listings = await getUserListings(ctx.from.id);
 
         if (!listings.length) {
-            await ctx.reply('You have no active listings.');
+            await ctx.reply('You have no active listings.', MAIN_MENU_KEYBOARD);
             return;
         }
 
@@ -472,16 +516,72 @@ function createBot(token) {
                 ...lines,
                 '',
                 'To close one use /delete <id>.',
-            ].join('\n')
+            ].join('\n'),
+            MAIN_MENU_KEYBOARD
         );
+    };
+
+    const routeMenuAction = async (ctx, action) => {
+        if (action === 'sell') {
+            await handleSell(ctx);
+            return;
+        }
+
+        if (action === 'buy') {
+            await handleBuy(ctx);
+            return;
+        }
+
+        if (action === 'market') {
+            await handleMarket(ctx);
+            return;
+        }
+
+        if (action === 'my_listings') {
+            await handleMyListings(ctx);
+            return;
+        }
+
+        if (action === 'help') {
+            await handleHelp(ctx);
+            return;
+        }
+
+        if (action === 'cancel') {
+            await handleCancel(ctx);
+            return;
+        }
+
+        await showMenu(ctx);
+    };
+
+    bot.start(async (ctx) => {
+        await ctx.reply(START_MESSAGE, MAIN_MENU_KEYBOARD);
+        await handleHelp(ctx);
     });
+
+    bot.command('help', handleHelp);
+
+    bot.command('menu', async (ctx) => {
+        await showMenu(ctx);
+    });
+
+    bot.command('sell', handleSell);
+
+    bot.command('buy', handleBuy);
+
+    bot.command('cancel', handleCancel);
+
+    bot.command('market', handleMarket);
+
+    bot.command('my_listings', handleMyListings);
 
     bot.command('delete', async (ctx) => {
         const text = ctx.message?.text || '';
         const args = text.trim().split(/\s+/).slice(1);
 
         if (!args[0]) {
-            await ctx.reply('You must provide the ID. Example: /delete abc12345');
+            await ctx.reply('You must provide the ID. Example: /delete abc12345', MAIN_MENU_KEYBOARD);
             return;
         }
 
@@ -490,22 +590,22 @@ function createBot(token) {
 
         if (!result.ok) {
             if (result.reason === 'not_found') {
-                await ctx.reply('No listing found with that ID.');
+                await ctx.reply('No listing found with that ID.', MAIN_MENU_KEYBOARD);
                 return;
             }
 
             if (result.reason === 'forbidden') {
-                await ctx.reply('That listing does not belong to you.');
+                await ctx.reply('That listing does not belong to you.', MAIN_MENU_KEYBOARD);
                 return;
             }
 
             if (result.reason === 'already_closed') {
-                await ctx.reply('That listing was already closed.');
+                await ctx.reply('That listing was already closed.', MAIN_MENU_KEYBOARD);
                 return;
             }
         }
 
-        await ctx.reply(`✅ Listing #${id} closed successfully.`);
+        await ctx.reply(`✅ Listing #${id} closed successfully.`, MAIN_MENU_KEYBOARD);
     });
 
     bot.on('text', async (ctx) => {
@@ -515,10 +615,30 @@ function createBot(token) {
             return;
         }
 
+        const menuAction = BUTTON_ACTION_MAP.get(text);
+
+        if (menuAction) {
+            if (ctx.session?.form && menuAction !== 'cancel') {
+                await ctx.reply(
+                    'You are filling out a form now. Finish it or tap "❌ Cancel form".',
+                    MAIN_MENU_KEYBOARD
+                );
+                return;
+            }
+
+            await routeMenuAction(ctx, menuAction);
+            return;
+        }
+
         if (text.startsWith('/')) {
             if (ctx.session?.form) {
-                await ctx.reply('You are filling out a form. Use /cancel to abort it.');
+                await ctx.reply('You are filling out a form. Use /cancel to abort it.', MAIN_MENU_KEYBOARD);
             }
+            return;
+        }
+
+        if (!ctx.session?.form) {
+            await ctx.reply('Use the menu buttons below or type /help.', MAIN_MENU_KEYBOARD);
             return;
         }
 

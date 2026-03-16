@@ -17,9 +17,12 @@ A Telegram bot powered by **Node.js + Express + PostgreSQL** that lets users pos
 
 ## Bot commands
 
+The bot is button-driven: after `/start`, users can tap the bottom keyboard buttons instead of typing commands manually.
+
 | Command | Description |
 |---|---|
-| `/start` or `/help` | Show available commands |
+| `/start` or `/help` | Show quick start + available commands |
+| `/menu` | Re-open the action buttons keyboard |
 | `/sell` | Start a sell listing wizard |
 | `/buy` | Start a buy request wizard |
 | `/market` | Browse the 5 most recent sell and buy listings |

@@ -13,6 +13,18 @@ const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/telegram/webhook';
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || undefined;
 
+const BOT_COMMANDS = [
+    { command: 'start', description: 'Open quick start guide' },
+    { command: 'menu', description: 'Show action buttons' },
+    { command: 'sell', description: 'Create a sell listing' },
+    { command: 'buy', description: 'Create a buy request' },
+    { command: 'market', description: 'Browse market listings' },
+    { command: 'my_listings', description: 'View your active listings' },
+    { command: 'delete', description: 'Close a listing by ID' },
+    { command: 'cancel', description: 'Cancel current form' },
+    { command: 'help', description: 'Show help' },
+];
+
 if (!BOT_TOKEN) {
     throw new Error('Missing TELEGRAM_BOT_TOKEN environment variable.');
 }
@@ -38,6 +50,10 @@ let server;
 
 async function start() {
     await ensureStore();
+
+    await bot.telegram.setMyCommands(BOT_COMMANDS).catch((error) => {
+        console.error('Failed to set Telegram commands:', error);
+    });
 
     if (BOT_MODE === 'webhook') {
         if (!WEBHOOK_URL) {
