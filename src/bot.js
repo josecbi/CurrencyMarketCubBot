@@ -247,6 +247,15 @@ function getFlowByType(type) {
     return type === 'sell' ? SELL_STEPS : BUY_STEPS;
 }
 
+function getCurrentStepPrompt(form) {
+    if (!form) {
+        return null;
+    }
+
+    const flow = getFlowByType(form.type);
+    return flow[form.step]?.prompt || null;
+}
+
 function formatPrice(price) {
     const amount = Number(price);
     return Number.isFinite(amount)
@@ -388,6 +397,29 @@ async function startFlow(ctx, type) {
         `${header}\n\n${flow[0].prompt}\n\n✍️ Reply by typing your answer as a normal message.`,
         FORM_KEYBOARD
     );
+}
+
+async function replyWithActiveFormPrompt(ctx, intro) {
+    const activeForm = await getActiveForm(ctx);
+
+    if (!activeForm) {
+        return false;
+    }
+
+    const currentPrompt = getCurrentStepPrompt(activeForm);
+
+    await ctx.reply(
+        [
+            intro,
+            '',
+            currentPrompt || 'Continue your current form.',
+            '',
+            '✍️ Reply by typing your answer as a normal message, or tap ❌ Cancel form.',
+        ].join('\n'),
+        FORM_KEYBOARD
+    );
+
+    return true;
 }
 
 async function showMarket(ctx) {
@@ -736,6 +768,10 @@ function createBot(token) {
     };
 
     bot.start(async (ctx) => {
+        if (await replyWithActiveFormPrompt(ctx, 'You already have an active form.')) {
+            return;
+        }
+
         await clearActiveForm(ctx);
         await ctx.reply(START_MESSAGE, MAIN_MENU_KEYBOARD);
         await handleHelp(ctx);
@@ -744,6 +780,10 @@ function createBot(token) {
     bot.command('help', handleHelp);
 
     bot.command('menu', async (ctx) => {
+        if (await replyWithActiveFormPrompt(ctx, 'You already have an active form.')) {
+            return;
+        }
+
         await showMenu(ctx);
     });
 
