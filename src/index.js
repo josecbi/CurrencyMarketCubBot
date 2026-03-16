@@ -51,6 +51,16 @@ let server;
 async function start() {
     await ensureStore();
 
+    // Validate token immediately — if this fails, the token is wrong/revoked
+    try {
+        const me = await bot.telegram.getMe();
+        console.log(`[token-ok] Bot authenticated as @${me.username} (id=${me.id})`);
+    } catch (err) {
+        console.error('[token-FAIL] Cannot authenticate with Telegram API:', err.message);
+        console.error('Check that TELEGRAM_BOT_TOKEN in Render environment variables is correct and not revoked.');
+        process.exit(1);
+    }
+
     await bot.telegram.setMyCommands(BOT_COMMANDS).catch((error) => {
         console.error('Failed to set Telegram commands:', error);
     });
