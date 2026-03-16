@@ -67,9 +67,26 @@ async function start() {
 
         const webhookPath = WEBHOOK_PATH.startsWith('/') ? WEBHOOK_PATH : `/${WEBHOOK_PATH}`;
         const finalWebhookUrl = `${parsedWebhookUrl.origin}${webhookPath}`;
-        const callbackOptions = WEBHOOK_SECRET ? { secretToken: WEBHOOK_SECRET } : undefined;
+        app.post(webhookPath, async (req, res) => {
+            if (WEBHOOK_SECRET) {
+                const incomingSecret = req.get('x-telegram-bot-api-secret-token');
+                if (incomingSecret !== WEBHOOK_SECRET) {
+                    console.warn('Rejected webhook request with invalid secret token.');
+                    res.sendStatus(401);
+                    return;
+                }
+            }
 
-        app.post(webhookPath, bot.webhookCallback(webhookPath, callbackOptions));
+            try {
+                await bot.handleUpdate(req.body);
+                res.sendStatus(200);
+            } catch (error) {
+                console.error('Failed to process webhook update:', error);
+                if (!res.headersSent) {
+                    res.sendStatus(500);
+                }
+            }
+        });
 
         const webhookOptions = WEBHOOK_SECRET ? { secret_token: WEBHOOK_SECRET } : undefined;
 
