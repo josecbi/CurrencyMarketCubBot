@@ -46,6 +46,19 @@ function mapListingRow(row) {
     };
 }
 
+function mapUserFormRow(row) {
+    return {
+        userId: Number(row.user_id),
+        chatId: Number(row.chat_id),
+        type: row.type,
+        step: Number(row.step),
+        data: row.data && typeof row.data === 'object' ? row.data : {},
+        updatedAt: row.updated_at instanceof Date
+            ? row.updated_at.toISOString()
+            : new Date(row.updated_at).toISOString(),
+    };
+}
+
 async function ensureStore() {
     await pool.query(`
         CREATE TABLE IF NOT EXISTS listings (
@@ -74,6 +87,22 @@ async function ensureStore() {
     await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_listings_user_active_created
         ON listings (user_id, is_active, created_at DESC);
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_forms (
+            user_id BIGINT PRIMARY KEY,
+            chat_id BIGINT NOT NULL,
+            type TEXT NOT NULL CHECK (type IN ('sell', 'buy')),
+            step INTEGER NOT NULL CHECK (step >= 0),
+            data JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_user_forms_updated_at
+        ON user_forms (updated_at DESC);
     `);
 }
 
@@ -235,6 +264,70 @@ async function closeListing(id, userId) {
     };
 }
 
+async function getUserForm(userId) {
+    const result = await pool.query(
+        `
+        SELECT *
+        FROM user_forms
+        WHERE user_id = $1;
+        `,
+        [userId]
+    );
+
+    const row = result.rows[0];
+    return row ? mapUserFormRow(row) : null;
+}
+
+async function upsertUserForm(payload) {
+    const result = await pool.query(
+        `
+        INSERT INTO user_forms (
+            user_id,
+            chat_id,
+            type,
+            step,
+            data,
+            updated_at
+        )
+        VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5::jsonb,
+            now()
+        )
+        ON CONFLICT (user_id)
+        DO UPDATE
+        SET chat_id = EXCLUDED.chat_id,
+            type = EXCLUDED.type,
+            step = EXCLUDED.step,
+            data = EXCLUDED.data,
+            updated_at = now()
+        RETURNING *;
+        `,
+        [
+            payload.userId,
+            payload.chatId,
+            payload.type,
+            payload.step,
+            JSON.stringify(payload.data || {}),
+        ]
+    );
+
+    return mapUserFormRow(result.rows[0]);
+}
+
+async function deleteUserForm(userId) {
+    await pool.query(
+        `
+        DELETE FROM user_forms
+        WHERE user_id = $1;
+        `,
+        [userId]
+    );
+}
+
 async function closePool() {
     await pool.end();
 }
@@ -245,5 +338,8 @@ module.exports = {
     getActiveListings,
     getUserListings,
     closeListing,
+    getUserForm,
+    upsertUserForm,
+    deleteUserForm,
     closePool,
 };

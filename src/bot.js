@@ -4,6 +4,9 @@ const {
     getActiveListings,
     getUserListings,
     closeListing,
+    getUserForm,
+    upsertUserForm,
+    deleteUserForm,
 } = require('./store');
 const {
     NEAR_MATCH_PERCENT,
@@ -172,9 +175,57 @@ function getSessionState(ctx) {
     return ctx.session;
 }
 
-function clearActiveForm(ctx) {
+async function getActiveForm(ctx) {
     const state = getSessionState(ctx);
-    state.form = null;
+
+    if (state.form && typeof state.form === 'object') {
+        return state.form;
+    }
+
+    if (!ctx.from?.id) {
+        return null;
+    }
+
+    const persisted = await getUserForm(ctx.from.id);
+
+    if (!persisted) {
+        return null;
+    }
+
+    const hydrated = {
+        type: persisted.type,
+        step: Number.isInteger(persisted.step) ? persisted.step : 0,
+        data: persisted.data && typeof persisted.data === 'object' ? persisted.data : {},
+    };
+
+    state.form = hydrated;
+    return hydrated;
+}
+
+async function persistForm(ctx, form) {
+    const state = getSessionState(ctx);
+    state.form = form || null;
+
+    if (!ctx.from?.id) {
+        return;
+    }
+
+    if (!form) {
+        await deleteUserForm(ctx.from.id);
+        return;
+    }
+
+    await upsertUserForm({
+        userId: ctx.from.id,
+        chatId: ctx.chat?.id || ctx.from.id,
+        type: form.type,
+        step: form.step,
+        data: form.data || {},
+    });
+}
+
+async function clearActiveForm(ctx) {
+    await persistForm(ctx, null);
 }
 
 async function ensureInteractiveUserContext(ctx) {
@@ -319,14 +370,15 @@ async function startFlow(ctx, type) {
         return;
     }
 
-    const state = getSessionState(ctx);
     const flow = getFlowByType(type);
 
-    state.form = {
+    const form = {
         type,
         step: 0,
         data: {},
     };
+
+    await persistForm(ctx, form);
 
     const header = type === 'sell'
         ? '✅ Starting your sell listing.'
@@ -493,8 +545,7 @@ async function runMatching(ctx, newListing) {
 }
 
 async function processFlowText(ctx, text) {
-    const state = getSessionState(ctx);
-    const form = state.form;
+    const form = await getActiveForm(ctx);
 
     if (!form) {
         return;
@@ -504,7 +555,7 @@ async function processFlowText(ctx, text) {
     const current = flow[form.step];
 
     if (!current) {
-        clearActiveForm(ctx);
+        await clearActiveForm(ctx);
         await ctx.reply('Form reset for safety. Use /sell or /buy to start again.', MAIN_MENU_KEYBOARD);
         return;
     }
@@ -516,10 +567,12 @@ async function processFlowText(ctx, text) {
         return;
     }
 
+    const isFinalStep = form.step >= flow.length - 1;
     form.data[current.key] = validation.value;
-    form.step += 1;
 
-    if (form.step < flow.length) {
+    if (!isFinalStep) {
+        form.step += 1;
+        await persistForm(ctx, form);
         await ctx.reply(`${flow[form.step].prompt}\n\n✍️ Reply by typing your answer.`, FORM_KEYBOARD);
         return;
     }
@@ -537,7 +590,7 @@ async function processFlowText(ctx, text) {
         userDisplayName: getUserDisplayName(ctx.from),
     });
 
-    clearActiveForm(ctx);
+    await clearActiveForm(ctx);
 
     const summaryDetail = listing.type === 'sell'
         ? `Description: ${listing.description}`
@@ -607,14 +660,14 @@ function createBot(token) {
             return;
         }
 
-        const state = getSessionState(ctx);
+        const activeForm = await getActiveForm(ctx);
 
-        if (!state.form) {
+        if (!activeForm) {
             await ctx.reply('You have no active form.', MAIN_MENU_KEYBOARD);
             return;
         }
 
-        clearActiveForm(ctx);
+        await clearActiveForm(ctx);
         await ctx.reply('Form cancelled. Use /sell or /buy whenever you are ready.', MAIN_MENU_KEYBOARD);
     };
 
@@ -683,7 +736,7 @@ function createBot(token) {
     };
 
     bot.start(async (ctx) => {
-        clearActiveForm(ctx);
+        await clearActiveForm(ctx);
         await ctx.reply(START_MESSAGE, MAIN_MENU_KEYBOARD);
         await handleHelp(ctx);
     });
@@ -752,9 +805,9 @@ function createBot(token) {
 
         if (menuAction) {
             console.log(`[menu-action] action=${menuAction} user=${ctx.from?.id}`);
-            const state = getSessionState(ctx);
+            const activeForm = await getActiveForm(ctx);
 
-            if (state.form && menuAction !== 'cancel') {
+            if (activeForm && menuAction !== 'cancel') {
                 if (menuAction === 'sell' || menuAction === 'buy') {
                     await startFlow(ctx, menuAction);
                     return;
@@ -771,17 +824,17 @@ function createBot(token) {
         }
 
         if (text.startsWith('/')) {
-            const state = getSessionState(ctx);
+            const activeForm = await getActiveForm(ctx);
 
-            if (state.form) {
+            if (activeForm) {
                 await ctx.reply('You are filling out a form. Use /cancel to abort it.', MAIN_MENU_KEYBOARD);
             }
             return;
         }
 
-        const state = getSessionState(ctx);
+        const activeForm = await getActiveForm(ctx);
 
-        if (!state.form) {
+        if (!activeForm) {
             console.log(`[text-unmatched] user=${ctx.from?.id} raw=${JSON.stringify(text)} normalized=${JSON.stringify(normalizedText)}`);
             await ctx.reply('Use the menu buttons below or type /help.', MAIN_MENU_KEYBOARD);
             return;
