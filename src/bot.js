@@ -64,6 +64,10 @@ const MAIN_MENU_KEYBOARD = Markup.keyboard([
     [MENU_BUTTONS.help, MENU_BUTTONS.cancel],
 ]).resize();
 
+const FORM_KEYBOARD = Markup.keyboard([
+    [MENU_BUTTONS.cancel],
+]).resize();
+
 function normalizeMenuText(value) {
     return String(value || '')
         .normalize('NFKC')
@@ -328,7 +332,10 @@ async function startFlow(ctx, type) {
         ? '✅ Starting your sell listing.'
         : '✅ Starting your buy request.';
 
-    return ctx.reply(`${header}\n\n${flow[0].prompt}`, MAIN_MENU_KEYBOARD);
+    return ctx.reply(
+        `${header}\n\n${flow[0].prompt}\n\n✍️ Reply by typing your answer as a normal message.`,
+        FORM_KEYBOARD
+    );
 }
 
 async function showMarket(ctx) {
@@ -505,7 +512,7 @@ async function processFlowText(ctx, text) {
     const validation = validateStep(current.key, text);
 
     if (!validation.ok) {
-        await ctx.reply(validation.error, MAIN_MENU_KEYBOARD);
+        await ctx.reply(`${validation.error}\n\nPlease type your answer, or tap ❌ Cancel form.`, FORM_KEYBOARD);
         return;
     }
 
@@ -513,7 +520,7 @@ async function processFlowText(ctx, text) {
     form.step += 1;
 
     if (form.step < flow.length) {
-        await ctx.reply(flow[form.step].prompt, MAIN_MENU_KEYBOARD);
+        await ctx.reply(`${flow[form.step].prompt}\n\n✍️ Reply by typing your answer.`, FORM_KEYBOARD);
         return;
     }
 
@@ -752,17 +759,9 @@ function createBot(token) {
                     await startFlow(ctx, menuAction);
                     return;
                 }
-
-                if (menuAction === 'market' || menuAction === 'my_listings' || menuAction === 'help') {
-                    clearActiveForm(ctx);
-                    await ctx.reply('Current form cancelled. Opening requested section.', MAIN_MENU_KEYBOARD);
-                    await routeMenuAction(ctx, menuAction);
-                    return;
-                }
-
                 await ctx.reply(
-                    'You are filling out a form now. Finish it or tap "❌ Cancel form".',
-                    MAIN_MENU_KEYBOARD
+                    'You are filling out a form now. Type your answer, or tap "❌ Cancel form" to exit.',
+                    FORM_KEYBOARD
                 );
                 return;
             }
