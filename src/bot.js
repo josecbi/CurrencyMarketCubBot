@@ -107,6 +107,34 @@ const HELP_MESSAGE = [
     `Matching looks for exact and near matches (up to ${NEAR_MATCH_PERCENT}% price difference).`,
 ].join('\n');
 
+function getSessionState(ctx) {
+    if (!ctx.session || typeof ctx.session !== 'object') {
+        ctx.session = {};
+    }
+
+    return ctx.session;
+}
+
+function clearActiveForm(ctx) {
+    const state = getSessionState(ctx);
+    state.form = null;
+}
+
+async function ensureInteractiveUserContext(ctx) {
+    if (ctx.chat?.type === 'private' && ctx.from?.id && ctx.chat?.id) {
+        return true;
+    }
+
+    if (typeof ctx.reply === 'function') {
+        await ctx.reply(
+            'Please use this bot in a direct private chat so I can keep track of your form.',
+            MAIN_MENU_KEYBOARD
+        );
+    }
+
+    return false;
+}
+
 function getFlowByType(type) {
     return type === 'sell' ? SELL_STEPS : BUY_STEPS;
 }
@@ -229,10 +257,15 @@ function formatOwnListing(listing, index) {
     return `${index + 1}) #${listing.id} | ${typeLabel} ${listing.currency} @ ${formatPrice(listing.price)}`;
 }
 
-function startFlow(ctx, type) {
+async function startFlow(ctx, type) {
+    if (!(await ensureInteractiveUserContext(ctx))) {
+        return;
+    }
+
+    const state = getSessionState(ctx);
     const flow = getFlowByType(type);
 
-    ctx.session.form = {
+    state.form = {
         type,
         step: 0,
         data: {},
@@ -400,7 +433,8 @@ async function runMatching(ctx, newListing) {
 }
 
 async function processFlowText(ctx, text) {
-    const form = ctx.session?.form;
+    const state = getSessionState(ctx);
+    const form = state.form;
 
     if (!form) {
         return;
@@ -410,7 +444,7 @@ async function processFlowText(ctx, text) {
     const current = flow[form.step];
 
     if (!current) {
-        ctx.session.form = null;
+        clearActiveForm(ctx);
         await ctx.reply('Form reset for safety. Use /sell or /buy to start again.', MAIN_MENU_KEYBOARD);
         return;
     }
@@ -443,7 +477,7 @@ async function processFlowText(ctx, text) {
         userDisplayName: getUserDisplayName(ctx.from),
     });
 
-    ctx.session.form = null;
+    clearActiveForm(ctx);
 
     const summaryDetail = listing.type === 'sell'
         ? `Description: ${listing.description}`
@@ -467,7 +501,7 @@ async function processFlowText(ctx, text) {
 function createBot(token) {
     const bot = new Telegraf(token);
 
-    bot.use(session());
+    bot.use(session({ defaultSession: () => ({ form: null }) }));
 
     const showMenu = async (ctx, intro = 'Choose an option below:') => {
         await ctx.reply(intro, MAIN_MENU_KEYBOARD);
@@ -478,20 +512,34 @@ function createBot(token) {
     };
 
     const handleSell = async (ctx) => {
+        if (!(await ensureInteractiveUserContext(ctx))) {
+            return;
+        }
+
         await startFlow(ctx, 'sell');
     };
 
     const handleBuy = async (ctx) => {
+        if (!(await ensureInteractiveUserContext(ctx))) {
+            return;
+        }
+
         await startFlow(ctx, 'buy');
     };
 
     const handleCancel = async (ctx) => {
-        if (!ctx.session?.form) {
+        if (!(await ensureInteractiveUserContext(ctx))) {
+            return;
+        }
+
+        const state = getSessionState(ctx);
+
+        if (!state.form) {
             await ctx.reply('You have no active form.', MAIN_MENU_KEYBOARD);
             return;
         }
 
-        ctx.session.form = null;
+        clearActiveForm(ctx);
         await ctx.reply('Form cancelled. Use /sell or /buy whenever you are ready.', MAIN_MENU_KEYBOARD);
     };
 
@@ -500,6 +548,10 @@ function createBot(token) {
     };
 
     const handleMyListings = async (ctx) => {
+        if (!(await ensureInteractiveUserContext(ctx))) {
+            return;
+        }
+
         const listings = await getUserListings(ctx.from.id);
 
         if (!listings.length) {
@@ -577,6 +629,10 @@ function createBot(token) {
     bot.command('my_listings', handleMyListings);
 
     bot.command('delete', async (ctx) => {
+        if (!(await ensureInteractiveUserContext(ctx))) {
+            return;
+        }
+
         const text = ctx.message?.text || '';
         const args = text.trim().split(/\s+/).slice(1);
 
@@ -618,7 +674,9 @@ function createBot(token) {
         const menuAction = BUTTON_ACTION_MAP.get(text);
 
         if (menuAction) {
-            if (ctx.session?.form && menuAction !== 'cancel') {
+            const state = getSessionState(ctx);
+
+            if (state.form && menuAction !== 'cancel') {
                 await ctx.reply(
                     'You are filling out a form now. Finish it or tap "❌ Cancel form".',
                     MAIN_MENU_KEYBOARD
@@ -631,13 +689,17 @@ function createBot(token) {
         }
 
         if (text.startsWith('/')) {
-            if (ctx.session?.form) {
+            const state = getSessionState(ctx);
+
+            if (state.form) {
                 await ctx.reply('You are filling out a form. Use /cancel to abort it.', MAIN_MENU_KEYBOARD);
             }
             return;
         }
 
-        if (!ctx.session?.form) {
+        const state = getSessionState(ctx);
+
+        if (!state.form) {
             await ctx.reply('Use the menu buttons below or type /help.', MAIN_MENU_KEYBOARD);
             return;
         }
