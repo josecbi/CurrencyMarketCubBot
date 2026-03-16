@@ -64,13 +64,31 @@ const MAIN_MENU_KEYBOARD = Markup.keyboard([
     [MENU_BUTTONS.help, MENU_BUTTONS.cancel],
 ]).resize();
 
+function normalizeMenuText(value) {
+    return String(value || '')
+        .normalize('NFKC')
+        .replace(/\uFE0F/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
 const BUTTON_ACTION_MAP = new Map([
-    [MENU_BUTTONS.sell, 'sell'],
-    [MENU_BUTTONS.buy, 'buy'],
-    [MENU_BUTTONS.market, 'market'],
-    [MENU_BUTTONS.myListings, 'my_listings'],
-    [MENU_BUTTONS.help, 'help'],
-    [MENU_BUTTONS.cancel, 'cancel'],
+    [normalizeMenuText(MENU_BUTTONS.sell), 'sell'],
+    [normalizeMenuText(MENU_BUTTONS.buy), 'buy'],
+    [normalizeMenuText(MENU_BUTTONS.market), 'market'],
+    [normalizeMenuText(MENU_BUTTONS.myListings), 'my_listings'],
+    [normalizeMenuText(MENU_BUTTONS.help), 'help'],
+    [normalizeMenuText(MENU_BUTTONS.cancel), 'cancel'],
+    ['sell', 'sell'],
+    ['buy', 'buy'],
+    ['market', 'market'],
+    ['browse market', 'market'],
+    ['my listings', 'my_listings'],
+    ['my listing', 'my_listings'],
+    ['help', 'help'],
+    ['cancel', 'cancel'],
+    ['cancel form', 'cancel'],
 ]);
 
 const START_MESSAGE = [
@@ -686,7 +704,8 @@ function createBot(token) {
             return;
         }
 
-        const menuAction = BUTTON_ACTION_MAP.get(text);
+        const normalizedText = normalizeMenuText(text);
+        const menuAction = BUTTON_ACTION_MAP.get(normalizedText);
 
         if (menuAction) {
             console.log(`[menu-action] action=${menuAction} user=${ctx.from?.id}`);
@@ -716,6 +735,7 @@ function createBot(token) {
         const state = getSessionState(ctx);
 
         if (!state.form) {
+            console.log(`[text-unmatched] user=${ctx.from?.id} raw=${JSON.stringify(text)} normalized=${JSON.stringify(normalizedText)}`);
             await ctx.reply('Use the menu buttons below or type /help.', MAIN_MENU_KEYBOARD);
             return;
         }
