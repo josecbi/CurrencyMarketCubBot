@@ -4,7 +4,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 const express = require('express');
 const { createBot } = require('./bot');
-const { ensureStore, closePool } = require('./store');
+const { ensureStore, closePool, checkStoreHealth } = require('./store');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const BOT_MODE = (process.env.BOT_MODE || 'polling').toLowerCase();
@@ -44,6 +44,46 @@ app.get('/health', (_req, res) => {
         mode: BOT_MODE,
         timestamp: new Date().toISOString(),
     });
+});
+
+app.get('/ready', async (_req, res) => {
+    try {
+        await checkStoreHealth();
+
+        const me = await bot.telegram.getMe();
+        const payload = {
+            ok: true,
+            mode: BOT_MODE,
+            database: {
+                ok: true,
+            },
+            telegram: {
+                ok: true,
+                id: me.id,
+                username: me.username,
+            },
+            timestamp: new Date().toISOString(),
+        };
+
+        if (BOT_MODE === 'webhook') {
+            const webhookInfo = await bot.telegram.getWebhookInfo();
+            payload.webhook = {
+                configuredUrl: webhookInfo.url || null,
+                pendingUpdates: webhookInfo.pending_update_count,
+                lastErrorMessage: webhookInfo.last_error_message || null,
+                hasCustomCertificate: webhookInfo.has_custom_certificate,
+            };
+        }
+
+        res.status(200).json(payload);
+    } catch (error) {
+        res.status(503).json({
+            ok: false,
+            mode: BOT_MODE,
+            error: error?.message || 'Unknown readiness error',
+            timestamp: new Date().toISOString(),
+        });
+    }
 });
 
 let server;
@@ -130,8 +170,6 @@ async function gracefulShutdown(signal) {
 
     if (BOT_MODE === 'polling') {
         bot.stop(signal);
-    } else {
-        await bot.telegram.deleteWebhook().catch(() => { });
     }
 
     if (!server) {

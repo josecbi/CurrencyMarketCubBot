@@ -224,6 +224,26 @@ async function getUserListings(userId, options = {}) {
 }
 
 async function closeListing(id, userId) {
+    const updateResult = await pool.query(
+        `
+        UPDATE listings
+        SET is_active = false,
+            closed_at = now()
+        WHERE id = $1
+          AND user_id = $2
+          AND is_active = true
+        RETURNING *;
+        `,
+        [id, userId]
+    );
+
+    if (updateResult.rows[0]) {
+        return {
+            ok: true,
+            listing: mapListingRow(updateResult.rows[0]),
+        };
+    }
+
     const findResult = await pool.query(
         `
         SELECT *
@@ -247,21 +267,12 @@ async function closeListing(id, userId) {
         return { ok: false, reason: 'already_closed' };
     }
 
-    const updateResult = await pool.query(
-        `
-        UPDATE listings
-        SET is_active = false,
-            closed_at = now()
-        WHERE id = $1
-        RETURNING *;
-        `,
-        [id]
-    );
+    return { ok: false, reason: 'not_found' };
+}
 
-    return {
-        ok: true,
-        listing: mapListingRow(updateResult.rows[0]),
-    };
+async function checkStoreHealth() {
+    await pool.query('SELECT 1;');
+    return true;
 }
 
 async function getUserForm(userId) {
@@ -341,5 +352,6 @@ module.exports = {
     getUserForm,
     upsertUserForm,
     deleteUserForm,
+    checkStoreHealth,
     closePool,
 };

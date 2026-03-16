@@ -1,4 +1,4 @@
-const { Telegraf, session, Markup } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const {
     addListing,
     getActiveListings,
@@ -71,6 +71,12 @@ const FORM_KEYBOARD = Markup.keyboard([
     [MENU_BUTTONS.cancel],
 ]).resize();
 
+const parsedFormTtlMinutes = Number(process.env.FORM_TTL_MINUTES);
+const FORM_TTL_MINUTES = Number.isFinite(parsedFormTtlMinutes) && parsedFormTtlMinutes > 0
+    ? parsedFormTtlMinutes
+    : 60;
+const MAX_PRICE = 99999999999999.9999;
+
 function normalizeMenuText(value) {
     return String(value || '')
         .normalize('NFKC')
@@ -87,6 +93,9 @@ const BUTTON_ACTION_MAP = new Map([
     [normalizeMenuText(MENU_BUTTONS.myListings), 'my_listings'],
     [normalizeMenuText(MENU_BUTTONS.help), 'help'],
     [normalizeMenuText(MENU_BUTTONS.cancel), 'cancel'],
+]);
+
+const BUTTON_ACTION_ALIASES = new Map([
     ['sell', 'sell'],
     ['buy', 'buy'],
     ['market', 'market'],
@@ -100,37 +109,27 @@ const BUTTON_ACTION_MAP = new Map([
 
 function resolveMenuAction(rawText) {
     const normalized = normalizeMenuText(rawText);
-    const direct = BUTTON_ACTION_MAP.get(normalized);
+    return BUTTON_ACTION_MAP.get(normalized) || BUTTON_ACTION_ALIASES.get(normalized) || null;
+}
 
-    if (direct) {
-        return direct;
+function summarizeIncomingText(text) {
+    const trimmed = String(text || '').trim();
+
+    if (!trimmed) {
+        return 'empty';
     }
 
-    if (normalized.includes('sell')) {
-        return 'sell';
+    if (trimmed.startsWith('/')) {
+        return trimmed.split(/\s+/, 1)[0];
     }
 
-    if (normalized.includes('buy')) {
-        return 'buy';
+    const menuAction = resolveMenuAction(trimmed);
+
+    if (menuAction) {
+        return `button:${menuAction}`;
     }
 
-    if (normalized.includes('market')) {
-        return 'market';
-    }
-
-    if (normalized.includes('my listing') || normalized.includes('listings')) {
-        return 'my_listings';
-    }
-
-    if (normalized.includes('help')) {
-        return 'help';
-    }
-
-    if (normalized.includes('cancel')) {
-        return 'cancel';
-    }
-
-    return null;
+    return `text:${trimmed.length}chars`;
 }
 
 const START_MESSAGE = [
@@ -167,44 +166,69 @@ const HELP_MESSAGE = [
     `Matching looks for exact and near matches (up to ${NEAR_MATCH_PERCENT}% price difference).`,
 ].join('\n');
 
-function getSessionState(ctx) {
-    if (!ctx.session || typeof ctx.session !== 'object') {
-        ctx.session = {};
+function getContextState(ctx) {
+    if (!ctx.state || typeof ctx.state !== 'object') {
+        ctx.state = {};
     }
 
-    return ctx.session;
+    return ctx.state;
 }
 
 async function getActiveForm(ctx) {
-    const state = getSessionState(ctx);
+    const state = getContextState(ctx);
 
-    if (state.form && typeof state.form === 'object') {
-        return state.form;
+    if (Object.prototype.hasOwnProperty.call(state, 'activeForm')) {
+        return state.activeForm;
     }
 
     if (!ctx.from?.id) {
+        state.activeForm = null;
         return null;
     }
 
     const persisted = await getUserForm(ctx.from.id);
 
     if (!persisted) {
+        state.activeForm = null;
+        return null;
+    }
+
+    const updatedAtTimestamp = Date.parse(persisted.updatedAt);
+    if (Number.isFinite(updatedAtTimestamp)
+        && Date.now() - updatedAtTimestamp > FORM_TTL_MINUTES * 60 * 1000) {
+        await deleteUserForm(ctx.from.id);
+        state.activeForm = null;
+        return null;
+    }
+
+    const flow = getFlowByType(persisted.type);
+    const safeStep = Number.isInteger(persisted.step) ? persisted.step : 0;
+
+    if (safeStep < 0 || safeStep >= flow.length) {
+        await deleteUserForm(ctx.from.id);
+        state.activeForm = null;
         return null;
     }
 
     const hydrated = {
         type: persisted.type,
-        step: Number.isInteger(persisted.step) ? persisted.step : 0,
+        step: safeStep,
         data: persisted.data && typeof persisted.data === 'object' ? persisted.data : {},
     };
 
-    state.form = hydrated;
+    state.activeForm = hydrated;
     return hydrated;
 }
 
 async function persistForm(ctx, form) {
-    const state = getSessionState(ctx);
-    state.form = form || null;
+    const state = getContextState(ctx);
+    state.activeForm = form
+        ? {
+            type: form.type,
+            step: form.step,
+            data: form.data || {},
+        }
+        : null;
 
     if (!ctx.from?.id) {
         return;
@@ -285,10 +309,15 @@ function getUserDisplayName(from) {
 }
 
 function parsePrice(text) {
-    const normalized = text.trim().replace(',', '.');
+    const normalized = text.trim().replace(/\s+/g, '').replace(',', '.');
+
+    if (!/^\d+(\.\d{1,4})?$/.test(normalized)) {
+        return null;
+    }
+
     const value = Number(normalized);
 
-    if (!Number.isFinite(value) || value <= 0) {
+    if (!Number.isFinite(value) || value <= 0 || value > MAX_PRICE) {
         return null;
     }
 
@@ -625,8 +654,8 @@ async function processFlowText(ctx, text) {
     await clearActiveForm(ctx);
 
     const summaryDetail = listing.type === 'sell'
-        ? `Description: ${listing.description}`
-        : `Transaction type: ${listing.transactionType}`;
+        ? `Description: ${listing.description || 'No description'}`
+        : `Transaction type: ${listing.transactionType || 'Not specified'}`;
 
     await ctx.reply(
         [
@@ -646,15 +675,13 @@ async function processFlowText(ctx, text) {
 function createBot(token) {
     const bot = new Telegraf(token);
 
-    bot.use(session({ defaultSession: () => ({ form: null }) }));
-
     // Global diagnostic middleware — logs every incoming update
     bot.use(async (ctx, next) => {
         const updateType = ctx.updateType;
         const text = ctx.message?.text || '';
         const chatType = ctx.chat?.type || 'unknown';
         const userId = ctx.from?.id || 'unknown';
-        console.log(`[update] type=${updateType} chat=${chatType} user=${userId} text=${JSON.stringify(text.slice(0, 60))}`);
+        console.log(`[update] type=${updateType} chat=${chatType} user=${userId} input=${summarizeIncomingText(text)}`);
         try {
             await next();
         } catch (err) {
@@ -777,7 +804,13 @@ function createBot(token) {
         await handleHelp(ctx);
     });
 
-    bot.command('help', handleHelp);
+    bot.command('help', async (ctx) => {
+        if (await replyWithActiveFormPrompt(ctx, 'You already have an active form.')) {
+            return;
+        }
+
+        await handleHelp(ctx);
+    });
 
     bot.command('menu', async (ctx) => {
         if (await replyWithActiveFormPrompt(ctx, 'You already have an active form.')) {
@@ -793,9 +826,21 @@ function createBot(token) {
 
     bot.command('cancel', handleCancel);
 
-    bot.command('market', handleMarket);
+    bot.command('market', async (ctx) => {
+        if (await replyWithActiveFormPrompt(ctx, 'You already have an active form.')) {
+            return;
+        }
 
-    bot.command('my_listings', handleMyListings);
+        await handleMarket(ctx);
+    });
+
+    bot.command('my_listings', async (ctx) => {
+        if (await replyWithActiveFormPrompt(ctx, 'You already have an active form.')) {
+            return;
+        }
+
+        await handleMyListings(ctx);
+    });
 
     bot.command('delete', async (ctx) => {
         if (!(await ensureInteractiveUserContext(ctx))) {
@@ -840,6 +885,10 @@ function createBot(token) {
             return;
         }
 
+        if (text.startsWith('/')) {
+            return;
+        }
+
         const normalizedText = normalizeMenuText(text);
         const menuAction = resolveMenuAction(text);
 
@@ -863,19 +912,10 @@ function createBot(token) {
             return;
         }
 
-        if (text.startsWith('/')) {
-            const activeForm = await getActiveForm(ctx);
-
-            if (activeForm) {
-                await ctx.reply('You are filling out a form. Use /cancel to abort it.', MAIN_MENU_KEYBOARD);
-            }
-            return;
-        }
-
         const activeForm = await getActiveForm(ctx);
 
         if (!activeForm) {
-            console.log(`[text-unmatched] user=${ctx.from?.id} raw=${JSON.stringify(text)} normalized=${JSON.stringify(normalizedText)}`);
+            console.log(`[text-unmatched] user=${ctx.from?.id} input=${summarizeIncomingText(text)} normalized=${JSON.stringify(normalizedText)}`);
             await ctx.reply('Use the menu buttons below or type /help.', MAIN_MENU_KEYBOARD);
             return;
         }

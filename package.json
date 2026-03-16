@@ -8,7 +8,8 @@
     },
     "scripts": {
         "start": "node src/index.js",
-        "dev": "node --watch src/index.js"
+        "dev": "node --watch src/index.js",
+        "check": "node --check src/index.js && node --check src/bot.js && node --check src/store.js && node --check src/matcher.js"
     },
     "author": "Jose",
     "license": "ISC",
