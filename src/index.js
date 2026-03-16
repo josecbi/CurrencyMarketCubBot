@@ -11,7 +11,7 @@ const BOT_MODE = (process.env.BOT_MODE || 'polling').toLowerCase();
 const PORT = Number(process.env.PORT) || 3000;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/telegram/webhook';
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || undefined;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET?.trim() || undefined;
 
 const BOT_COMMANDS = [
     { command: 'start', description: 'Open quick start guide' },
@@ -60,16 +60,31 @@ async function start() {
             throw new Error('WEBHOOK_URL must be defined when using webhook mode.');
         }
 
-        app.use(WEBHOOK_PATH, bot.webhookCallback(WEBHOOK_PATH, { secretToken: WEBHOOK_SECRET }));
+        const parsedWebhookUrl = new URL(WEBHOOK_URL);
+        if (parsedWebhookUrl.pathname && parsedWebhookUrl.pathname !== '/') {
+            throw new Error('WEBHOOK_URL must be the base domain only (no path). Example: https://my-service.onrender.com');
+        }
 
-        const baseUrl = WEBHOOK_URL.endsWith('/')
-            ? WEBHOOK_URL.slice(0, -1)
-            : WEBHOOK_URL;
+        const webhookPath = WEBHOOK_PATH.startsWith('/') ? WEBHOOK_PATH : `/${WEBHOOK_PATH}`;
+        const finalWebhookUrl = `${parsedWebhookUrl.origin}${webhookPath}`;
+        const callbackOptions = WEBHOOK_SECRET ? { secretToken: WEBHOOK_SECRET } : undefined;
 
-        await bot.telegram.setWebhook(`${baseUrl}${WEBHOOK_PATH}`, {
-            secret_token: WEBHOOK_SECRET,
+        app.post(webhookPath, bot.webhookCallback(webhookPath, callbackOptions));
+
+        const webhookOptions = WEBHOOK_SECRET ? { secret_token: WEBHOOK_SECRET } : undefined;
+
+        await bot.telegram.setWebhook(finalWebhookUrl, webhookOptions);
+        const webhookInfo = await bot.telegram.getWebhookInfo();
+
+        console.log(`Bot running in webhook mode on ${webhookPath}`);
+        console.log('Webhook diagnostics:', {
+            configuredUrl: webhookInfo.url,
+            pendingUpdates: webhookInfo.pending_update_count,
+            hasCustomCertificate: webhookInfo.has_custom_certificate,
+            lastErrorDate: webhookInfo.last_error_date,
+            lastErrorMessage: webhookInfo.last_error_message,
+            usingSecretToken: Boolean(WEBHOOK_SECRET),
         });
-        console.log(`Bot running in webhook mode on ${WEBHOOK_PATH}`);
     } else {
         await bot.launch({ dropPendingUpdates: false });
         console.log('Bot running in polling mode.');
