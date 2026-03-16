@@ -101,7 +101,10 @@ async function start() {
             }
         });
 
-        const webhookOptions = WEBHOOK_SECRET ? { secret_token: WEBHOOK_SECRET } : undefined;
+        const webhookOptions = {
+            drop_pending_updates: true,
+            ...(WEBHOOK_SECRET ? { secret_token: WEBHOOK_SECRET } : {}),
+        };
 
         await bot.telegram.setWebhook(finalWebhookUrl, webhookOptions);
         const webhookInfo = await bot.telegram.getWebhookInfo();

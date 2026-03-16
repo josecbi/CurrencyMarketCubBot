@@ -91,6 +91,41 @@ const BUTTON_ACTION_MAP = new Map([
     ['cancel form', 'cancel'],
 ]);
 
+function resolveMenuAction(rawText) {
+    const normalized = normalizeMenuText(rawText);
+    const direct = BUTTON_ACTION_MAP.get(normalized);
+
+    if (direct) {
+        return direct;
+    }
+
+    if (normalized.includes('sell')) {
+        return 'sell';
+    }
+
+    if (normalized.includes('buy')) {
+        return 'buy';
+    }
+
+    if (normalized.includes('market')) {
+        return 'market';
+    }
+
+    if (normalized.includes('my listing') || normalized.includes('listings')) {
+        return 'my_listings';
+    }
+
+    if (normalized.includes('help')) {
+        return 'help';
+    }
+
+    if (normalized.includes('cancel')) {
+        return 'cancel';
+    }
+
+    return null;
+}
+
 const START_MESSAGE = [
     '👋 Welcome to Currency Exchange Bot!',
     '',
@@ -706,7 +741,7 @@ function createBot(token) {
         }
 
         const normalizedText = normalizeMenuText(text);
-        const menuAction = BUTTON_ACTION_MAP.get(normalizedText);
+        const menuAction = resolveMenuAction(text);
 
         if (menuAction) {
             console.log(`[menu-action] action=${menuAction} user=${ctx.from?.id}`);
@@ -715,6 +750,13 @@ function createBot(token) {
             if (state.form && menuAction !== 'cancel') {
                 if (menuAction === 'sell' || menuAction === 'buy') {
                     await startFlow(ctx, menuAction);
+                    return;
+                }
+
+                if (menuAction === 'market' || menuAction === 'my_listings' || menuAction === 'help') {
+                    clearActiveForm(ctx);
+                    await ctx.reply('Current form cancelled. Opening requested section.', MAIN_MENU_KEYBOARD);
+                    await routeMenuAction(ctx, menuAction);
                     return;
                 }
 
