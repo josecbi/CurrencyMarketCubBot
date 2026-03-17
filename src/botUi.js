@@ -160,7 +160,7 @@ function getStepInstruction(stepKey) {
     }
 
     if (stepKey === 'contact') {
-        return '🧩 Example: Jose +1 212 555 0199';
+        return '🧩 Example: Name +1 212 555 0199';
     }
 
     if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
