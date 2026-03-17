@@ -56,9 +56,6 @@ const MENU_BUTTONS = {
 
 const FORM_BUTTONS = {
     skipNote: '⏭ Skip note',
-    priceBackspace: '⌫ Delete',
-    priceClear: '🧹 Clear',
-    priceConfirm: '✅ Confirm price',
 };
 
 const TRANSFER_TYPE_OPTIONS = [
@@ -141,8 +138,6 @@ const MAX_NOTE_LENGTH = Number.isFinite(parsedMaxNoteLength) && parsedMaxNoteLen
 
 const WARMUP_HINT_REPEAT_MS = 30000;
 const MAX_PRICE = 99999999999999.9999;
-const MAX_PRICE_INTEGER_DIGITS = 14;
-const PRICE_KEY_INPUT_RE = /^[0-9.]$/;
 const LISTING_ID_RE = /^[a-z0-9]{6,16}$/i;
 
 module.exports = {
@@ -162,7 +157,5 @@ module.exports = {
     MAX_NOTE_LENGTH,
     WARMUP_HINT_REPEAT_MS,
     MAX_PRICE,
-    MAX_PRICE_INTEGER_DIGITS,
-    PRICE_KEY_INPUT_RE,
     LISTING_ID_RE,
 };

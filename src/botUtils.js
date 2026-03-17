@@ -1,8 +1,5 @@
 const {
-    FORM_BUTTONS,
     MAX_PRICE,
-    MAX_PRICE_INTEGER_DIGITS,
-    PRICE_KEY_INPUT_RE,
     MAX_NOTE_LENGTH,
 } = require('./botConfig');
 const {
@@ -18,154 +15,6 @@ function normalizeContact(value) {
 
 function getListingNoteLine(listing) {
     return `Note: ${listing.description || 'No note'}`;
-}
-
-function getPriceDraft(form) {
-    if (!form?.data || typeof form.data !== 'object') {
-        return '';
-    }
-
-    return String(form.data.priceDraft || '');
-}
-
-function formatPriceDraft(draft) {
-    return draft || '—';
-}
-
-function appendPriceDraftValue(draft, rawValue) {
-    const value = rawValue === ',' ? '.' : rawValue;
-    let nextDraft = draft;
-
-    if (/^[0-9]$/.test(value)) {
-        nextDraft += value;
-    } else if (value === '.') {
-        if (nextDraft.includes('.')) {
-            return {
-                ok: false,
-                error: 'Only one decimal point is allowed.',
-            };
-        }
-
-        nextDraft = nextDraft ? `${nextDraft}.` : '0.';
-    } else {
-        return {
-            ok: false,
-            error: 'Invalid key for price input.',
-        };
-    }
-
-    const [integerPart, decimalPart = ''] = nextDraft.split('.');
-
-    if (integerPart.length > MAX_PRICE_INTEGER_DIGITS) {
-        return {
-            ok: false,
-            error: `Price is too large (max ${MAX_PRICE_INTEGER_DIGITS} digits before decimal).`,
-        };
-    }
-
-    if (decimalPart.length > 4) {
-        return {
-            ok: false,
-            error: 'Price supports up to 4 decimal places.',
-        };
-    }
-
-    return {
-        ok: true,
-        draft: nextDraft,
-    };
-}
-
-function handlePriceStepInput(form, inputText) {
-    const trimmed = String(inputText || '').trim();
-    const normalized = normalizeMenuText(trimmed);
-    const currentDraft = getPriceDraft(form);
-
-    if (normalized === normalizeMenuText(FORM_BUTTONS.priceConfirm)) {
-        const amount = parsePrice(currentDraft);
-
-        if (!amount) {
-            return {
-                kind: 'error',
-                message: `Invalid price draft (${formatPriceDraft(currentDraft)}).\n\nUse the numeric keypad and tap ✅ Confirm price.`,
-                draft: currentDraft,
-            };
-        }
-
-        return {
-            kind: 'confirmed',
-            value: amount,
-        };
-    }
-
-    if (normalized === normalizeMenuText(FORM_BUTTONS.priceClear)) {
-        return {
-            kind: 'draft',
-            draft: '',
-            message: '💵 Price draft cleared.\n\nUse the numeric keypad and tap ✅ Confirm price.',
-        };
-    }
-
-    if (normalized === normalizeMenuText(FORM_BUTTONS.priceBackspace)) {
-        const nextDraft = currentDraft.slice(0, -1);
-        return {
-            kind: 'draft',
-            draft: nextDraft,
-            message: `💵 Price draft: ${formatPriceDraft(nextDraft)}\n\nTap ✅ Confirm price when ready.`,
-        };
-    }
-
-    if (PRICE_KEY_INPUT_RE.test(trimmed)) {
-        const appendResult = appendPriceDraftValue(currentDraft, trimmed);
-
-        if (!appendResult.ok) {
-            return {
-                kind: 'error',
-                message: `${appendResult.error}\n\nCurrent draft: ${formatPriceDraft(currentDraft)}`,
-                draft: currentDraft,
-            };
-        }
-
-        return {
-            kind: 'draft',
-            draft: appendResult.draft,
-            message: `💵 Price draft: ${formatPriceDraft(appendResult.draft)}\n\nTap ✅ Confirm price when ready.`,
-        };
-    }
-
-    const normalizedTypedValue = trimmed.replace(/\s+/g, '').replace(',', '.');
-
-    if (/^\d+(\.\d{0,4})?$/.test(normalizedTypedValue)) {
-        const [integerPart, decimalPart = ''] = normalizedTypedValue.split('.');
-
-        if (integerPart.length > MAX_PRICE_INTEGER_DIGITS) {
-            return {
-                kind: 'error',
-                message: `Price is too large (max ${MAX_PRICE_INTEGER_DIGITS} digits before decimal).`,
-                draft: currentDraft,
-            };
-        }
-
-        if (decimalPart.length > 4) {
-            return {
-                kind: 'error',
-                message: 'Price supports up to 4 decimal places.',
-                draft: currentDraft,
-            };
-        }
-
-        return {
-            kind: 'draft',
-            draft: normalizedTypedValue,
-            message: `💵 Price draft: ${formatPriceDraft(normalizedTypedValue)}\n\nTap ✅ Confirm price to continue.`,
-        };
-    }
-
-    return {
-        kind: 'error',
-        message: 'Invalid price input. Use only numeric keys and tap ✅ Confirm price.',
-        draft: currentDraft,
-    };
 }
 
 function formatListingDate(value) {
@@ -388,9 +237,6 @@ function validateStep(key, value) {
 module.exports = {
     normalizeContact,
     getListingNoteLine,
-    getPriceDraft,
-    formatPriceDraft,
-    handlePriceStepInput,
     formatListingDate,
     formatListingAge,
     getSellListingDetail,

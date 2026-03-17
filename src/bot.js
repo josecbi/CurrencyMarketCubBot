@@ -36,9 +36,6 @@ const {
 } = require('./botUi');
 const {
     getListingNoteLine,
-    getPriceDraft,
-    formatPriceDraft,
-    handlePriceStepInput,
     formatListingDate,
     formatListingAge,
     getSellListingDetail,
@@ -193,7 +190,10 @@ function formatMarketListing(listing, index) {
 
 function formatOwnListing(listing, index) {
     const typeLabel = listing.type === 'sell' ? 'Sell' : 'Buy';
-    return `${index + 1}) #${listing.id} | ${typeLabel} ${listing.currency} @ ${formatPrice(listing.price)}`;
+    return [
+        `${index + 1}) #${listing.id} | ${typeLabel} ${listing.currency} @ ${formatPrice(listing.price)}`,
+        `Listed on: ${formatListingDate(listing.createdAt)} (${formatListingAge(listing.createdAt)})`,
+    ].join('\n');
 }
 
 function startTypingLoader(ctx) {
@@ -322,16 +322,12 @@ async function replyWithActiveFormPrompt(ctx, intro) {
 
     const currentPrompt = getCurrentStepPrompt(activeForm);
     const currentStepKey = getCurrentStepKey(activeForm);
-    const currentDraftHint = currentStepKey === 'price'
-        ? `Current price draft: ${formatPriceDraft(getPriceDraft(activeForm))}`
-        : null;
 
     await ctx.reply(
         [
             intro,
             '',
             currentPrompt || 'Continue your current form.',
-            ...(currentDraftHint ? ['', currentDraftHint] : []),
             '',
             getStepRetryInstruction(currentStepKey),
         ].join('\n'),
@@ -382,6 +378,7 @@ async function notifyUsersForBuy(ctx, buyListing, matches) {
                     `Buyer's contact: ${buyListing.contact}`,
                     getBuyListingDetail(buyListing),
                     getListingNoteLine(buyListing),
+                    `Buyer's listing posted: ${formatListingDate(buyListing.createdAt)}`,
                     `Price gap: ${formatPercent(match.gapPercent)}`,
                 ].join('\n')
             );
@@ -405,6 +402,7 @@ async function notifyUsersForSell(ctx, sellListing, matches) {
                     `Seller's contact: ${sellListing.contact}`,
                     getSellListingDetail(sellListing),
                     getListingNoteLine(sellListing),
+                    `Seller's listing posted: ${formatListingDate(sellListing.createdAt)}`,
                     `Price gap: ${formatPercent(match.gapPercent)}`,
                 ].join('\n')
             );
@@ -427,6 +425,7 @@ function formatSellerMatch(match, index) {
         `Contact: ${seller.contact}`,
         getSellListingDetail(seller),
         getListingNoteLine(seller),
+        `Listed on: ${formatListingDate(seller.createdAt)} (${formatListingAge(seller.createdAt)})`,
     ].join('\n');
 }
 
@@ -443,6 +442,7 @@ function formatBuyerMatch(match, index) {
         `Contact: ${buyer.contact}`,
         getBuyListingDetail(buyer),
         getListingNoteLine(buyer),
+        `Listed on: ${formatListingDate(buyer.createdAt)} (${formatListingAge(buyer.createdAt)})`,
     ].join('\n');
 }
 
@@ -627,43 +627,20 @@ async function processFlowText(ctx, text) {
 
     let stepValue;
 
-    if (current.key === 'price') {
-        const priceInput = handlePriceStepInput(form, text);
+    const validation = validateStep(current.key, text);
 
-        if (priceInput.kind !== 'confirmed') {
-            if (Object.prototype.hasOwnProperty.call(priceInput, 'draft')) {
-                form.data.priceDraft = priceInput.draft;
-                await persistForm(ctx, form);
-            }
-
-            await ctx.reply(
-                `${priceInput.message}\n\n${getStepRetryInstruction(current.key)}`,
-                getKeyboardForStep(current.key)
-            );
-            return;
-        }
-
-        stepValue = priceInput.value;
-    } else {
-        const validation = validateStep(current.key, text);
-
-        if (!validation.ok) {
-            await ctx.reply(
-                `${validation.error}\n\n${getStepRetryInstruction(current.key)}`,
-                getKeyboardForStep(current.key)
-            );
-            return;
-        }
-
-        stepValue = validation.value;
+    if (!validation.ok) {
+        await ctx.reply(
+            `${validation.error}\n\n${getStepRetryInstruction(current.key)}`,
+            getKeyboardForStep(current.key)
+        );
+        return;
     }
+
+    stepValue = validation.value;
 
     const isFinalStep = form.step >= flow.length - 1;
     form.data[current.key] = stepValue;
-
-    if (current.key === 'price') {
-        delete form.data.priceDraft;
-    }
 
     if (!isFinalStep) {
         form.step += 1;
@@ -701,6 +678,7 @@ async function processFlowText(ctx, text) {
             `Price: ${formatPrice(listing.price)}`,
             summaryDetail,
             getListingNoteLine(listing),
+            `Posted on: ${formatListingDate(listing.createdAt)}`,
             '',
             'You can close your listing anytime with /delete <id>.',
         ].join('\n'),

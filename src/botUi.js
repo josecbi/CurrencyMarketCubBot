@@ -54,15 +54,6 @@ const FORM_KEYBOARD = Markup.keyboard([
     [MENU_BUTTONS.cancel],
 ]).resize();
 
-const PRICE_KEYBOARD = Markup.keyboard([
-    ['1', '2', '3'],
-    ['4', '5', '6'],
-    ['7', '8', '9'],
-    ['0', '.', FORM_BUTTONS.priceBackspace],
-    [FORM_BUTTONS.priceClear, FORM_BUTTONS.priceConfirm],
-    [MENU_BUTTONS.cancel],
-]).resize();
-
 const NOTE_KEYBOARD = Markup.keyboard([
     [FORM_BUTTONS.skipNote],
     [MENU_BUTTONS.cancel],
@@ -148,10 +139,6 @@ function getKeyboardForStep(stepKey) {
         return CURRENCY_KEYBOARD;
     }
 
-    if (stepKey === 'price') {
-        return PRICE_KEYBOARD;
-    }
-
     if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
         return TRANSFER_TYPE_KEYBOARD;
     }
@@ -169,7 +156,7 @@ function getStepInstruction(stepKey) {
     }
 
     if (stepKey === 'price') {
-        return '🔢 Use the numeric keypad below and tap ✅ Confirm price when done.';
+        return '� Type the price (numbers only, e.g. 39.50).';
     }
 
     if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
@@ -189,7 +176,7 @@ function getStepRetryInstruction(stepKey) {
     }
 
     if (stepKey === 'price') {
-        return '🔢 Use only the numeric keypad below and tap ✅ Confirm price.';
+        return '� Please type a valid price, e.g. 39.50';
     }
 
     if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
