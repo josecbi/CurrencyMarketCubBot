@@ -10,6 +10,8 @@ A Telegram bot powered by **Node.js + Express + PostgreSQL** that lets users pos
 - **Buy request** — desired currency, max price, contact info, accepted transaction type
 - **Automatic matching** — finds exact matches (price is met) and near matches (within a configurable % tolerance)
 - **Push notifications** — counterparties are notified when a compatible listing appears
+- **Live loading feedback** — Telegram typing indicator is shown while requests are being processed
+- **Cold-start hint** — users are informed when the bot is waking up after a restart/idle period
 - **Webhook security** — Telegram updates are validated with a secret token
 - **PostgreSQL persistence** — listings survive restarts; table and indexes are created automatically
 
@@ -53,6 +55,8 @@ cp .env.example .env
 | `DATABASE_SSL` | No | `false` | Set to `true` when the DB host requires an encrypted connection (Render, Railway, Supabase, etc.). |
 | `DB_POOL_MAX` | No | `10` | Maximum number of simultaneous PostgreSQL connections. Increase if you have many concurrent users. |
 | `NEAR_MATCH_PERCENT` | No | `10` | Percentage tolerance for the matching engine. A buyer targeting 100 will also see sellers up to `100 * (1 + 0.10) = 110`. |
+| `LOADER_INTERVAL_MS` | No | `4000` | How often the bot refreshes Telegram's typing indicator while a request is in progress. |
+| `COLD_START_HINT_WINDOW_SECONDS` | No | `180` | Time window after process start where users get a one-time “server waking up” hint (useful on Render cold starts). |
 
 ---
 

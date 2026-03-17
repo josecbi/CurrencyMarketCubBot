@@ -75,6 +75,16 @@ const parsedFormTtlMinutes = Number(process.env.FORM_TTL_MINUTES);
 const FORM_TTL_MINUTES = Number.isFinite(parsedFormTtlMinutes) && parsedFormTtlMinutes > 0
     ? parsedFormTtlMinutes
     : 60;
+const parsedLoaderIntervalMs = Number(process.env.LOADER_INTERVAL_MS);
+const LOADER_INTERVAL_MS = Number.isFinite(parsedLoaderIntervalMs) && parsedLoaderIntervalMs >= 1000
+    ? parsedLoaderIntervalMs
+    : 4000;
+const parsedColdStartHintWindowSeconds = Number(process.env.COLD_START_HINT_WINDOW_SECONDS);
+const COLD_START_HINT_WINDOW_MS = Number.isFinite(parsedColdStartHintWindowSeconds) && parsedColdStartHintWindowSeconds > 0
+    ? parsedColdStartHintWindowSeconds * 1000
+    : 180000;
+const PROCESS_STARTED_AT = Date.now();
+const warmupHintedUsers = new Set();
 const MAX_PRICE = 99999999999999.9999;
 
 function normalizeMenuText(value) {
@@ -403,6 +413,58 @@ function formatOwnListing(listing, index) {
     return `${index + 1}) #${listing.id} | ${typeLabel} ${listing.currency} @ ${formatPrice(listing.price)}`;
 }
 
+function startTypingLoader(ctx) {
+    if (!ctx.chat?.id || typeof ctx.sendChatAction !== 'function') {
+        return () => { };
+    }
+
+    let stopped = false;
+
+    const sendTyping = async () => {
+        if (stopped) {
+            return;
+        }
+
+        try {
+            await ctx.sendChatAction('typing');
+        } catch (_error) {
+            // Ignore loader errors to avoid blocking user flow.
+        }
+    };
+
+    void sendTyping();
+    const intervalId = setInterval(() => {
+        void sendTyping();
+    }, LOADER_INTERVAL_MS);
+
+    return () => {
+        stopped = true;
+        clearInterval(intervalId);
+    };
+}
+
+async function maybeReplyColdStartHint(ctx) {
+    if (Date.now() - PROCESS_STARTED_AT > COLD_START_HINT_WINDOW_MS) {
+        return;
+    }
+
+    if (ctx.chat?.type !== 'private' || !ctx.from?.id || !ctx.chat?.id) {
+        return;
+    }
+
+    if (warmupHintedUsers.has(ctx.from.id)) {
+        return;
+    }
+
+    warmupHintedUsers.add(ctx.from.id);
+
+    try {
+        await ctx.reply('⏳ Server is waking up after restart. Processing your request now...');
+    } catch (_error) {
+        // Ignore hint errors to keep request handling uninterrupted.
+    }
+}
+
 async function startFlow(ctx, type) {
     if (!(await ensureInteractiveUserContext(ctx))) {
         return;
@@ -682,11 +744,17 @@ function createBot(token) {
         const chatType = ctx.chat?.type || 'unknown';
         const userId = ctx.from?.id || 'unknown';
         console.log(`[update] type=${updateType} chat=${chatType} user=${userId} input=${summarizeIncomingText(text)}`);
+
+        const stopTypingLoader = startTypingLoader(ctx);
+
         try {
+            await maybeReplyColdStartHint(ctx);
             await next();
         } catch (err) {
             console.error(`[update-error] type=${updateType} user=${userId}`, err);
             throw err;
+        } finally {
+            stopTypingLoader();
         }
     });
 
