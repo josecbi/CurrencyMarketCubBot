@@ -116,20 +116,10 @@ const FORM_TTL_MINUTES = Number.isFinite(parsedFormTtlMinutes) && parsedFormTtlM
     ? parsedFormTtlMinutes
     : 60;
 
-const parsedLoaderIntervalMs = Number(process.env.LOADER_INTERVAL_MS);
-const LOADER_INTERVAL_MS = Number.isFinite(parsedLoaderIntervalMs) && parsedLoaderIntervalMs >= 1000
-    ? parsedLoaderIntervalMs
-    : 4000;
-
 const parsedColdStartHintWindowSeconds = Number(process.env.COLD_START_HINT_WINDOW_SECONDS);
 const COLD_START_HINT_WINDOW_MS = Number.isFinite(parsedColdStartHintWindowSeconds) && parsedColdStartHintWindowSeconds > 0
     ? parsedColdStartHintWindowSeconds * 1000
     : 180000;
-
-const parsedLoaderMessageDelayMs = Number(process.env.LOADER_MESSAGE_DELAY_MS);
-const LOADER_MESSAGE_DELAY_MS = Number.isFinite(parsedLoaderMessageDelayMs) && parsedLoaderMessageDelayMs >= 0
-    ? parsedLoaderMessageDelayMs
-    : 1200;
 
 const parsedMaxNoteLength = Number(process.env.MAX_NOTE_LENGTH);
 const MAX_NOTE_LENGTH = Number.isFinite(parsedMaxNoteLength) && parsedMaxNoteLength >= 20
@@ -151,9 +141,7 @@ module.exports = {
     START_MESSAGE,
     buildHelpMessage,
     FORM_TTL_MINUTES,
-    LOADER_INTERVAL_MS,
     COLD_START_HINT_WINDOW_MS,
-    LOADER_MESSAGE_DELAY_MS,
     MAX_NOTE_LENGTH,
     WARMUP_HINT_REPEAT_MS,
     MAX_PRICE,

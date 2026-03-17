@@ -19,9 +19,7 @@ const {
     START_MESSAGE,
     buildHelpMessage,
     FORM_TTL_MINUTES,
-    LOADER_INTERVAL_MS,
     COLD_START_HINT_WINDOW_MS,
-    LOADER_MESSAGE_DELAY_MS,
     WARMUP_HINT_REPEAT_MS,
 } = require('./botConfig');
 const {
@@ -193,73 +191,6 @@ function formatOwnListing(listing, index) {
         `${index + 1}) #${listing.id} | ${typeLabel} ${listing.currency} @ ${formatPrice(listing.price)}`,
         `Listed on: ${formatListingDate(listing.createdAt)} (${formatListingAge(listing.createdAt)})`,
     ].join('\n');
-}
-
-function startTypingLoader(ctx) {
-    if (!ctx.chat?.id || typeof ctx.sendChatAction !== 'function') {
-        return () => { };
-    }
-
-    let stopped = false;
-
-    const sendTyping = async () => {
-        if (stopped) {
-            return;
-        }
-
-        try {
-            await ctx.sendChatAction('typing');
-        } catch (_error) {
-            // Ignore loader errors to avoid blocking user flow.
-        }
-    };
-
-    void sendTyping();
-    const intervalId = setInterval(() => {
-        void sendTyping();
-    }, LOADER_INTERVAL_MS);
-
-    return () => {
-        stopped = true;
-        clearInterval(intervalId);
-    };
-}
-
-function startDelayedLoaderMessage(ctx) {
-    if (!ctx.chat?.id || typeof ctx.reply !== 'function' || LOADER_MESSAGE_DELAY_MS <= 0) {
-        return async () => { };
-    }
-
-    let stopped = false;
-    let loaderMessageId;
-
-    const timer = setTimeout(async () => {
-        if (stopped) {
-            return;
-        }
-
-        try {
-            const sentMessage = await ctx.reply('⏳ Processing your request...');
-            loaderMessageId = sentMessage?.message_id;
-        } catch (_error) {
-            // Ignore loader message errors.
-        }
-    }, LOADER_MESSAGE_DELAY_MS);
-
-    return async () => {
-        stopped = true;
-        clearTimeout(timer);
-
-        if (!loaderMessageId || !ctx.telegram || !ctx.chat?.id) {
-            return;
-        }
-
-        try {
-            await ctx.telegram.deleteMessage(ctx.chat.id, loaderMessageId);
-        } catch (_error) {
-            // Ignore delete errors (message may be already deleted or not deletable).
-        }
-    };
 }
 
 async function maybeReplyColdStartHint(ctx) {
@@ -697,18 +628,12 @@ function createBot(token) {
         const userId = ctx.from?.id || 'unknown';
         console.log(`[update] type=${updateType} chat=${chatType} user=${userId} input=${summarizeIncomingText(text)}`);
 
-        const stopTypingLoader = startTypingLoader(ctx);
-        const stopDelayedLoaderMessage = startDelayedLoaderMessage(ctx);
-
         try {
             await maybeReplyColdStartHint(ctx);
             await next();
         } catch (err) {
             console.error(`[update-error] type=${updateType} user=${userId}`, err);
             throw err;
-        } finally {
-            stopTypingLoader();
-            await stopDelayedLoaderMessage();
         }
     });
 
