@@ -54,6 +54,7 @@ cp .env.example .env
 | `DATABASE_URL` | **Yes** | — | Full PostgreSQL connection string: `postgres://user:password@host:port/database`. The bot creates the `listings` table on first start. |
 | `DATABASE_SSL` | No | `false` | Set to `true` when the DB host requires an encrypted connection (Render, Railway, Supabase, etc.). |
 | `DB_POOL_MAX` | No | `10` | Maximum number of simultaneous PostgreSQL connections. Increase if you have many concurrent users. |
+| `SUPPORTED_CURRENCIES` | No | `USD,EUR,USDT` | Comma-separated list of currency codes shown as buttons in the buy/sell wizard. |
 | `NEAR_MATCH_PERCENT` | No | `10` | Percentage tolerance for the matching engine. A buyer targeting 100 will also see sellers up to `100 * (1 + 0.10) = 110`. |
 | `LOADER_INTERVAL_MS` | No | `4000` | How often the bot refreshes Telegram's typing indicator while a request is in progress. |
 | `COLD_START_HINT_WINDOW_SECONDS` | No | `180` | Time window after process start where users get a one-time “server waking up” hint (useful on Render cold starts). |

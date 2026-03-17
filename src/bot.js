@@ -17,7 +17,7 @@ const {
 const SELL_STEPS = [
     {
         key: 'currency',
-        prompt: '💱 Which currency do you want to sell? (e.g. USD, EUR, USDT)',
+        prompt: '💱 Which currency do you want to sell? Tap one of the buttons below.',
     },
     {
         key: 'price',
@@ -36,7 +36,7 @@ const SELL_STEPS = [
 const BUY_STEPS = [
     {
         key: 'currency',
-        prompt: '💱 Which currency do you want to buy? (e.g. USD, EUR, USDT)',
+        prompt: '💱 Which currency do you want to buy? Tap one of the buttons below.',
     },
     {
         key: 'price',
@@ -60,6 +60,9 @@ const MENU_BUTTONS = {
     help: '❓ Help',
     cancel: '❌ Cancel form',
 };
+
+const DEFAULT_SUPPORTED_CURRENCIES = ['USD', 'EUR', 'USDT'];
+const MAX_CURRENCY_BUTTONS_PER_ROW = 3;
 
 const MAIN_MENU_KEYBOARD = Markup.keyboard([
     [MENU_BUTTONS.sell, MENU_BUTTONS.buy],
@@ -86,6 +89,32 @@ const COLD_START_HINT_WINDOW_MS = Number.isFinite(parsedColdStartHintWindowSecon
 const PROCESS_STARTED_AT = Date.now();
 const warmupHintedUsers = new Set();
 const MAX_PRICE = 99999999999999.9999;
+
+function parseSupportedCurrencies(value) {
+    const currencies = String(value || '')
+        .split(',')
+        .map((item) => normalizeCurrency(item))
+        .filter(Boolean)
+        .filter((item) => /^[A-Z0-9]{2,10}$/.test(item));
+
+    const uniqueCurrencies = [...new Set(currencies)];
+    return uniqueCurrencies.length ? uniqueCurrencies : DEFAULT_SUPPORTED_CURRENCIES;
+}
+
+function createCurrencyKeyboard(currencies) {
+    const rows = [];
+
+    for (let index = 0; index < currencies.length; index += MAX_CURRENCY_BUTTONS_PER_ROW) {
+        rows.push(currencies.slice(index, index + MAX_CURRENCY_BUTTONS_PER_ROW));
+    }
+
+    rows.push([MENU_BUTTONS.cancel]);
+
+    return Markup.keyboard(rows).resize();
+}
+
+const SUPPORTED_CURRENCIES = parseSupportedCurrencies(process.env.SUPPORTED_CURRENCIES);
+const CURRENCY_KEYBOARD = createCurrencyKeyboard(SUPPORTED_CURRENCIES);
 
 function normalizeMenuText(value) {
     return String(value || '')
@@ -290,6 +319,31 @@ function getCurrentStepPrompt(form) {
     return flow[form.step]?.prompt || null;
 }
 
+function getCurrentStepKey(form) {
+    if (!form) {
+        return null;
+    }
+
+    const flow = getFlowByType(form.type);
+    return flow[form.step]?.key || null;
+}
+
+function getKeyboardForStep(stepKey) {
+    return stepKey === 'currency' ? CURRENCY_KEYBOARD : FORM_KEYBOARD;
+}
+
+function getStepInstruction(stepKey) {
+    return stepKey === 'currency'
+        ? '👇 Tap one of the currency buttons below.'
+        : '✍️ Reply by typing your answer as a normal message.';
+}
+
+function getStepRetryInstruction(stepKey) {
+    return stepKey === 'currency'
+        ? '👇 Please choose one of the currency buttons below, or tap ❌ Cancel form.'
+        : '✍️ Please type your answer, or tap ❌ Cancel form.';
+}
+
 function formatPrice(price) {
     const amount = Number(price);
     return Number.isFinite(amount)
@@ -347,10 +401,10 @@ function validateStep(key, value) {
 
     if (key === 'currency') {
         const currency = normalizeCurrency(text);
-        if (!/^[A-Z0-9]{2,10}$/.test(currency)) {
+        if (!SUPPORTED_CURRENCIES.includes(currency)) {
             return {
                 ok: false,
-                error: 'Invalid currency. Use letters/numbers only, e.g. USD, EUR, USDT.',
+                error: 'Invalid currency. Please choose one of the available buttons below.',
             };
         }
 
@@ -485,8 +539,8 @@ async function startFlow(ctx, type) {
         : '✅ Starting your buy request.';
 
     return ctx.reply(
-        `${header}\n\n${flow[0].prompt}\n\n✍️ Reply by typing your answer as a normal message.`,
-        FORM_KEYBOARD
+        `${header}\n\n${flow[0].prompt}\n\n${getStepInstruction(flow[0].key)}`,
+        getKeyboardForStep(flow[0].key)
     );
 }
 
@@ -498,6 +552,7 @@ async function replyWithActiveFormPrompt(ctx, intro) {
     }
 
     const currentPrompt = getCurrentStepPrompt(activeForm);
+    const currentStepKey = getCurrentStepKey(activeForm);
 
     await ctx.reply(
         [
@@ -505,9 +560,9 @@ async function replyWithActiveFormPrompt(ctx, intro) {
             '',
             currentPrompt || 'Continue your current form.',
             '',
-            '✍️ Reply by typing your answer as a normal message, or tap ❌ Cancel form.',
+            getStepRetryInstruction(currentStepKey),
         ].join('\n'),
-        FORM_KEYBOARD
+        getKeyboardForStep(currentStepKey)
     );
 
     return true;
@@ -686,7 +741,10 @@ async function processFlowText(ctx, text) {
     const validation = validateStep(current.key, text);
 
     if (!validation.ok) {
-        await ctx.reply(`${validation.error}\n\nPlease type your answer, or tap ❌ Cancel form.`, FORM_KEYBOARD);
+        await ctx.reply(
+            `${validation.error}\n\n${getStepRetryInstruction(current.key)}`,
+            getKeyboardForStep(current.key)
+        );
         return;
     }
 
@@ -696,7 +754,10 @@ async function processFlowText(ctx, text) {
     if (!isFinalStep) {
         form.step += 1;
         await persistForm(ctx, form);
-        await ctx.reply(`${flow[form.step].prompt}\n\n✍️ Reply by typing your answer.`, FORM_KEYBOARD);
+        await ctx.reply(
+            `${flow[form.step].prompt}\n\n${getStepInstruction(flow[form.step].key)}`,
+            getKeyboardForStep(flow[form.step].key)
+        );
         return;
     }
 
