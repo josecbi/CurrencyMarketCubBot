@@ -28,8 +28,8 @@ const SELL_STEPS = [
         prompt: '📞 Share your contact information (phone, @username, etc.)',
     },
     {
-        key: 'description',
-        prompt: '📝 Describe the transaction (amount, conditions, location, schedule, etc.)',
+        key: 'preferredTransferType',
+        prompt: '🤝 What is your preferred transfer type? Choose bank transfer or cash.',
     },
 ];
 
@@ -48,7 +48,7 @@ const BUY_STEPS = [
     },
     {
         key: 'transactionType',
-        prompt: '🤝 What type of transaction do you accept? (bank transfer, cash, etc.)',
+        prompt: '🤝 What type of transaction do you accept? Choose bank transfer or cash.',
     },
 ];
 
@@ -63,6 +63,16 @@ const MENU_BUTTONS = {
 
 const DEFAULT_SUPPORTED_CURRENCIES = ['USD', 'EUR', 'USDT'];
 const MAX_CURRENCY_BUTTONS_PER_ROW = 3;
+const TRANSFER_TYPE_OPTIONS = [
+    {
+        label: '🏦 Bank transfer',
+        value: 'Bank transfer',
+    },
+    {
+        label: '💵 Cash',
+        value: 'Cash',
+    },
+];
 
 const MAIN_MENU_KEYBOARD = Markup.keyboard([
     [MENU_BUTTONS.sell, MENU_BUTTONS.buy],
@@ -115,6 +125,10 @@ function createCurrencyKeyboard(currencies) {
 
 const SUPPORTED_CURRENCIES = parseSupportedCurrencies(process.env.SUPPORTED_CURRENCIES);
 const CURRENCY_KEYBOARD = createCurrencyKeyboard(SUPPORTED_CURRENCIES);
+const TRANSFER_TYPE_KEYBOARD = Markup.keyboard([
+    TRANSFER_TYPE_OPTIONS.map((item) => item.label),
+    [MENU_BUTTONS.cancel],
+]).resize();
 
 function normalizeMenuText(value) {
     return String(value || '')
@@ -145,6 +159,13 @@ const BUTTON_ACTION_ALIASES = new Map([
     ['cancel', 'cancel'],
     ['cancel form', 'cancel'],
 ]);
+
+const TRANSFER_TYPE_VALUE_BY_INPUT = new Map(
+    TRANSFER_TYPE_OPTIONS.flatMap((item) => ([
+        [normalizeMenuText(item.label), item.value],
+        [normalizeMenuText(item.value), item.value],
+    ]))
+);
 
 function resolveMenuAction(rawText) {
     const normalized = normalizeMenuText(rawText);
@@ -329,19 +350,113 @@ function getCurrentStepKey(form) {
 }
 
 function getKeyboardForStep(stepKey) {
-    return stepKey === 'currency' ? CURRENCY_KEYBOARD : FORM_KEYBOARD;
+    if (stepKey === 'currency') {
+        return CURRENCY_KEYBOARD;
+    }
+
+    if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
+        return TRANSFER_TYPE_KEYBOARD;
+    }
+
+    return FORM_KEYBOARD;
 }
 
 function getStepInstruction(stepKey) {
-    return stepKey === 'currency'
-        ? '👇 Tap one of the currency buttons below.'
-        : '✍️ Reply by typing your answer as a normal message.';
+    if (stepKey === 'currency') {
+        return '👇 Tap one of the currency buttons below.';
+    }
+
+    if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
+        return '👇 Tap your preferred transfer type below.';
+    }
+
+    return '✍️ Reply by typing your answer as a normal message.';
 }
 
 function getStepRetryInstruction(stepKey) {
-    return stepKey === 'currency'
-        ? '👇 Please choose one of the currency buttons below, or tap ❌ Cancel form.'
-        : '✍️ Please type your answer, or tap ❌ Cancel form.';
+    if (stepKey === 'currency') {
+        return '👇 Please choose one of the currency buttons below, or tap ❌ Cancel form.';
+    }
+
+    if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
+        return '👇 Please choose bank transfer or cash, or tap ❌ Cancel form.';
+    }
+
+    return '✍️ Please type your answer, or tap ❌ Cancel form.';
+}
+
+function formatListingDate(value) {
+    const parsedDate = new Date(value);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+        return 'Unknown date';
+    }
+
+    return parsedDate.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
+function formatListingAge(value) {
+    const timestamp = Date.parse(value);
+
+    if (!Number.isFinite(timestamp)) {
+        return 'unknown age';
+    }
+
+    const elapsedMs = Math.max(0, Date.now() - timestamp);
+    const elapsedMinutes = Math.floor(elapsedMs / 60000);
+
+    if (elapsedMinutes < 1) {
+        return 'just now';
+    }
+
+    if (elapsedMinutes < 60) {
+        return `${elapsedMinutes}m ago`;
+    }
+
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+
+    if (elapsedHours < 24) {
+        return `${elapsedHours}h ago`;
+    }
+
+    const elapsedDays = Math.floor(elapsedHours / 24);
+
+    if (elapsedDays < 7) {
+        return `${elapsedDays}d ago`;
+    }
+
+    const elapsedWeeks = Math.floor(elapsedDays / 7);
+
+    if (elapsedWeeks < 5) {
+        return `${elapsedWeeks}w ago`;
+    }
+
+    const elapsedMonths = Math.floor(elapsedDays / 30);
+
+    if (elapsedMonths < 12) {
+        return `${elapsedMonths}mo ago`;
+    }
+
+    const elapsedYears = Math.floor(elapsedDays / 365);
+    return `${elapsedYears}y ago`;
+}
+
+function getSellListingDetail(listing) {
+    if (listing.transactionType) {
+        return `Preferred transfer: ${listing.transactionType}`;
+    }
+
+    if (listing.description) {
+        return `Details: ${listing.description}`;
+    }
+
+    return 'Preferred transfer: Not specified';
 }
 
 function formatPrice(price) {
@@ -435,6 +550,19 @@ function validateStep(key, value) {
         return { ok: true, value: text };
     }
 
+    if (key === 'preferredTransferType' || key === 'transactionType') {
+        const transferType = TRANSFER_TYPE_VALUE_BY_INPUT.get(normalizeMenuText(text));
+
+        if (!transferType) {
+            return {
+                ok: false,
+                error: 'Invalid transfer type. Please choose bank transfer or cash.',
+            };
+        }
+
+        return { ok: true, value: transferType };
+    }
+
     if (key === 'description' || key === 'transactionType') {
         if (text.length < 5 || text.length > 400) {
             return {
@@ -452,13 +580,14 @@ function validateStep(key, value) {
 function formatMarketListing(listing, index) {
     const typeLabel = listing.type === 'sell' ? 'Sell' : 'Buy';
     const detail = listing.type === 'sell'
-        ? `Description: ${listing.description || 'No description'}`
+        ? getSellListingDetail(listing)
         : `Transaction: ${listing.transactionType || 'Not specified'}`;
 
     return [
         `${index + 1}) #${listing.id} | ${typeLabel} ${listing.currency} @ ${formatPrice(listing.price)}`,
         detail,
         `Contact: ${listing.contact}`,
+        `Listed on: ${formatListingDate(listing.createdAt)} (${formatListingAge(listing.createdAt)})`,
     ].join('\n');
 }
 
@@ -629,7 +758,7 @@ async function notifyUsersForSell(ctx, sellListing, matches) {
                     `Currency: ${sellListing.currency}`,
                     `Seller's price: ${formatPrice(sellListing.price)}`,
                     `Seller's contact: ${sellListing.contact}`,
-                    `Description: ${sellListing.description}`,
+                    getSellListingDetail(sellListing),
                     `Price gap: ${formatPercent(match.gapPercent)}`,
                 ].join('\n')
             );
@@ -650,7 +779,7 @@ function formatSellerMatch(match, index) {
         `Ref: #${seller.id}`,
         `Seller's price: ${formatPrice(seller.price)}`,
         `Contact: ${seller.contact}`,
-        `Description: ${seller.description || 'No description'}`,
+        getSellListingDetail(seller),
     ].join('\n');
 }
 
@@ -766,8 +895,8 @@ async function processFlowText(ctx, text) {
         currency: form.data.currency,
         price: form.data.price,
         contact: form.data.contact,
-        description: form.type === 'sell' ? form.data.description : null,
-        transactionType: form.type === 'buy' ? form.data.transactionType : null,
+        description: null,
+        transactionType: form.type === 'buy' ? form.data.transactionType : form.data.preferredTransferType,
         userId: ctx.from.id,
         chatId: ctx.chat.id,
         username: ctx.from.username || null,
@@ -777,7 +906,7 @@ async function processFlowText(ctx, text) {
     await clearActiveForm(ctx);
 
     const summaryDetail = listing.type === 'sell'
-        ? `Description: ${listing.description || 'No description'}`
+        ? getSellListingDetail(listing)
         : `Transaction type: ${listing.transactionType || 'Not specified'}`;
 
     await ctx.reply(

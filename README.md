@@ -6,9 +6,10 @@ A Telegram bot powered by **Node.js + Express + PostgreSQL** that lets users pos
 
 ## Features
 
-- **Sell listing** — currency, price, contact info, transaction description
+- **Sell listing** — currency, price, contact info, preferred transfer type
 - **Buy request** — desired currency, max price, contact info, accepted transaction type
 - **Automatic matching** — finds exact matches (price is met) and near matches (within a configurable % tolerance)
+- **Market timestamps** — market listings show when they were published and how old they are
 - **Push notifications** — counterparties are notified when a compatible listing appears
 - **Live loading feedback** — Telegram typing indicator is shown while requests are being processed
 - **Cold-start hint** — users are informed when the bot is waking up after a restart/idle period
