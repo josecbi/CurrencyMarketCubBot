@@ -19,8 +19,6 @@ const {
     START_MESSAGE,
     buildHelpMessage,
     FORM_TTL_MINUTES,
-    COLD_START_HINT_WINDOW_MS,
-    WARMUP_HINT_REPEAT_MS,
 } = require('./botConfig');
 const {
     MAIN_MENU_KEYBOARD,
@@ -44,8 +42,6 @@ const {
 } = require('./botUtils');
 
 const HELP_MESSAGE = buildHelpMessage(NEAR_MATCH_PERCENT);
-const PROCESS_STARTED_AT = Date.now();
-const warmupHintedUsers = new Map();
 
 function getContextState(ctx) {
     if (!ctx.state || typeof ctx.state !== 'object') {
@@ -191,31 +187,6 @@ function formatOwnListing(listing, index) {
         `${index + 1}) #${listing.id} | ${typeLabel} ${listing.currency} @ ${formatPrice(listing.price)}`,
         `Listed on: ${formatListingDate(listing.createdAt)} (${formatListingAge(listing.createdAt)})`,
     ].join('\n');
-}
-
-async function maybeReplyColdStartHint(ctx) {
-    if (Date.now() - PROCESS_STARTED_AT > COLD_START_HINT_WINDOW_MS) {
-        return;
-    }
-
-    if (ctx.chat?.type !== 'private' || !ctx.from?.id || !ctx.chat?.id) {
-        return;
-    }
-
-    const now = Date.now();
-    const lastHintAt = warmupHintedUsers.get(ctx.from.id) || 0;
-
-    if (now - lastHintAt < WARMUP_HINT_REPEAT_MS) {
-        return;
-    }
-
-    warmupHintedUsers.set(ctx.from.id, now);
-
-    try {
-        await ctx.reply('⏳ Server is waking up after restart. Processing your request now...');
-    } catch (_error) {
-        // Ignore hint errors to keep request handling uninterrupted.
-    }
 }
 
 async function startFlow(ctx, type) {
@@ -629,7 +600,6 @@ function createBot(token) {
         console.log(`[update] type=${updateType} chat=${chatType} user=${userId} input=${summarizeIncomingText(text)}`);
 
         try {
-            await maybeReplyColdStartHint(ctx);
             await next();
         } catch (err) {
             console.error(`[update-error] type=${updateType} user=${userId}`, err);

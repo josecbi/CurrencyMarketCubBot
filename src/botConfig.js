@@ -116,17 +116,11 @@ const FORM_TTL_MINUTES = Number.isFinite(parsedFormTtlMinutes) && parsedFormTtlM
     ? parsedFormTtlMinutes
     : 60;
 
-const parsedColdStartHintWindowSeconds = Number(process.env.COLD_START_HINT_WINDOW_SECONDS);
-const COLD_START_HINT_WINDOW_MS = Number.isFinite(parsedColdStartHintWindowSeconds) && parsedColdStartHintWindowSeconds > 0
-    ? parsedColdStartHintWindowSeconds * 1000
-    : 180000;
-
 const parsedMaxNoteLength = Number(process.env.MAX_NOTE_LENGTH);
 const MAX_NOTE_LENGTH = Number.isFinite(parsedMaxNoteLength) && parsedMaxNoteLength >= 20
     ? parsedMaxNoteLength
     : 300;
 
-const WARMUP_HINT_REPEAT_MS = 30000;
 const MAX_PRICE = 99999999999999.9999;
 const LISTING_ID_RE = /^[a-z0-9]{6,16}$/i;
 
@@ -141,9 +135,7 @@ module.exports = {
     START_MESSAGE,
     buildHelpMessage,
     FORM_TTL_MINUTES,
-    COLD_START_HINT_WINDOW_MS,
     MAX_NOTE_LENGTH,
-    WARMUP_HINT_REPEAT_MS,
     MAX_PRICE,
     LISTING_ID_RE,
 };
