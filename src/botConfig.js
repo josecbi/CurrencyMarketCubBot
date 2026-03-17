@@ -9,7 +9,7 @@ const SELL_STEPS = [
     },
     {
         key: 'contact',
-        prompt: '📞 Share your contact information (phone, @username, etc.)',
+        prompt: '📞 Share contact as: person name + phone number, email, or Telegram username (@username).',
     },
     {
         key: 'preferredTransferType',
@@ -32,7 +32,7 @@ const BUY_STEPS = [
     },
     {
         key: 'contact',
-        prompt: '📞 Share your contact information (phone, @username, etc.)',
+        prompt: '📞 Share contact as: person name + phone number, email, or Telegram username (@username).',
     },
     {
         key: 'transactionType',

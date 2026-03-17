@@ -13,6 +13,67 @@ function normalizeContact(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function isValidPhone(contact) {
+    if (!/^\+?[0-9()\-.\s]+$/.test(contact)) {
+        return false;
+    }
+
+    const plusSignMatches = contact.match(/\+/g) || [];
+    if (plusSignMatches.length > 1 || (plusSignMatches.length === 1 && !contact.startsWith('+'))) {
+        return false;
+    }
+
+    const digits = contact.replace(/\D/g, '');
+    return digits.length >= 7 && digits.length <= 15;
+}
+
+function extractContactTokens(contact) {
+    const tokens = [];
+
+    const emailMatches = contact.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig) || [];
+    tokens.push(...emailMatches);
+
+    const telegramMatches = contact.match(/@[a-z][a-z0-9_]{4,31}/ig) || [];
+    tokens.push(...telegramMatches);
+
+    const phoneCandidates = contact.match(/\+?[0-9][0-9()\-.\s]{6,}/g) || [];
+    for (const candidate of phoneCandidates) {
+        const cleanedCandidate = candidate.trim().replace(/[.,;]+$/g, '');
+        if (isValidPhone(cleanedCandidate)) {
+            tokens.push(cleanedCandidate);
+        }
+    }
+
+    return [...new Set(tokens.filter(Boolean))];
+}
+
+function getNameFromContact(contact, contactTokens) {
+    let nameCandidate = contact;
+
+    for (const token of [...contactTokens].sort((a, b) => b.length - a.length)) {
+        nameCandidate = nameCandidate.replace(token, ' ');
+    }
+
+    return normalizeContact(nameCandidate.replace(/[|,;:]+/g, ' '));
+}
+
+function isValidPersonName(name) {
+    if (!name || name.length < 2 || name.length > 80) {
+        return false;
+    }
+
+    if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(name)) {
+        return false;
+    }
+
+    if (!/^[A-Za-zÀ-ÖØ-öø-ÿ'`´.\-\s]+$/.test(name)) {
+        return false;
+    }
+
+    const lettersCount = (name.match(/[A-Za-zÀ-ÖØ-öø-ÿ]/g) || []).length;
+    return lettersCount >= 2;
+}
+
 function getListingNoteLine(listing) {
     return `Note: ${listing.description || 'No note'}`;
 }
@@ -25,6 +86,8 @@ function formatListingDate(value) {
     }
 
     return parsedDate.toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        timeZoneName: 'short',
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -177,17 +240,28 @@ function validateStep(key, value) {
             };
         }
 
-        if (!/[A-Za-z0-9@+]/.test(contact)) {
+        if (/https?:\/\//i.test(contact) || /t\.me\//i.test(contact)) {
             return {
                 ok: false,
-                error: 'Contact must include letters/numbers (or @ / +).',
+                error: 'Please send direct contact data, not a URL.',
             };
         }
 
-        if (/https?:\/\//i.test(contact)) {
+        const contactTokens = extractContactTokens(contact);
+
+        if (!contactTokens.length) {
             return {
                 ok: false,
-                error: 'Please share direct contact info, not a URL.',
+                error: 'Invalid contact. Include the person name plus a phone number, email, or Telegram username (@youruser).',
+            };
+        }
+
+        const contactName = getNameFromContact(contact, contactTokens);
+
+        if (!isValidPersonName(contactName)) {
+            return {
+                ok: false,
+                error: 'Invalid contact. Include the person name plus a phone number, email, or Telegram username (@youruser).',
             };
         }
 

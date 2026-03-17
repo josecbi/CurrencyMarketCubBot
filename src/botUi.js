@@ -156,7 +156,11 @@ function getStepInstruction(stepKey) {
     }
 
     if (stepKey === 'price') {
-        return '� Type the price (numbers only, e.g. 39.50).';
+        return '💵 Type the price (numbers only, e.g. 39.50).';
+    }
+
+    if (stepKey === 'contact') {
+        return '📞 Type: person name + phone number, email, or Telegram username (@username).';
     }
 
     if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
@@ -176,7 +180,11 @@ function getStepRetryInstruction(stepKey) {
     }
 
     if (stepKey === 'price') {
-        return '� Please type a valid price, e.g. 39.50';
+        return '💵 Please type a valid price, e.g. 39.50';
+    }
+
+    if (stepKey === 'contact') {
+        return '📞 Please enter: person name + phone number, email, or Telegram username (@username).';
     }
 
     if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
