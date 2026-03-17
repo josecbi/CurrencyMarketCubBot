@@ -1,4 +1,4 @@
-const { Telegraf, Markup } = require('telegraf');
+const { Telegraf } = require('telegraf');
 const {
     addListing,
     getActiveListings,
@@ -13,218 +13,45 @@ const {
     findSellersForBuyer,
     findBuyersForSeller,
 } = require('./matcher');
+const {
+    SELL_STEPS,
+    BUY_STEPS,
+    START_MESSAGE,
+    buildHelpMessage,
+    FORM_TTL_MINUTES,
+    LOADER_INTERVAL_MS,
+    COLD_START_HINT_WINDOW_MS,
+    LOADER_MESSAGE_DELAY_MS,
+    WARMUP_HINT_REPEAT_MS,
+    LISTING_ID_RE,
+} = require('./botConfig');
+const {
+    MAIN_MENU_KEYBOARD,
+    resolveMenuAction,
+    summarizeIncomingText,
+    normalizeMenuText,
+    getKeyboardForStep,
+    getStepInstruction,
+    getStepRetryInstruction,
+} = require('./botUi');
+const {
+    getListingNoteLine,
+    getPriceDraft,
+    formatPriceDraft,
+    handlePriceStepInput,
+    formatListingDate,
+    formatListingAge,
+    getSellListingDetail,
+    getBuyListingDetail,
+    formatPrice,
+    formatPercent,
+    getUserDisplayName,
+    validateStep,
+} = require('./botUtils');
 
-const SELL_STEPS = [
-    {
-        key: 'currency',
-        prompt: '💱 Which currency do you want to sell? Tap one of the buttons below.',
-    },
-    {
-        key: 'price',
-        prompt: '💵 At what price do you want to sell it? (numbers only, e.g. 39.50)',
-    },
-    {
-        key: 'contact',
-        prompt: '📞 Share your contact information (phone, @username, etc.)',
-    },
-    {
-        key: 'preferredTransferType',
-        prompt: '🤝 What is your preferred transfer type? Choose bank transfer or cash.',
-    },
-];
-
-const BUY_STEPS = [
-    {
-        key: 'currency',
-        prompt: '💱 Which currency do you want to buy? Tap one of the buttons below.',
-    },
-    {
-        key: 'price',
-        prompt: '💵 What is the maximum price you are willing to pay?',
-    },
-    {
-        key: 'contact',
-        prompt: '📞 Share your contact information (phone, @username, etc.)',
-    },
-    {
-        key: 'transactionType',
-        prompt: '🤝 What type of transaction do you accept? Choose bank transfer or cash.',
-    },
-];
-
-const MENU_BUTTONS = {
-    sell: '🟢 Sell currency',
-    buy: '🔵 Buy currency',
-    market: '📊 Browse market',
-    myListings: '🗂 My listings',
-    help: '❓ Help',
-    cancel: '❌ Cancel form',
-};
-
-const DEFAULT_SUPPORTED_CURRENCIES = ['USD', 'EUR', 'USDT'];
-const MAX_CURRENCY_BUTTONS_PER_ROW = 3;
-const TRANSFER_TYPE_OPTIONS = [
-    {
-        label: '🏦 Bank transfer',
-        value: 'Bank transfer',
-    },
-    {
-        label: '💵 Cash',
-        value: 'Cash',
-    },
-];
-
-const MAIN_MENU_KEYBOARD = Markup.keyboard([
-    [MENU_BUTTONS.sell, MENU_BUTTONS.buy],
-    [MENU_BUTTONS.market, MENU_BUTTONS.myListings],
-    [MENU_BUTTONS.help, MENU_BUTTONS.cancel],
-]).resize();
-
-const FORM_KEYBOARD = Markup.keyboard([
-    [MENU_BUTTONS.cancel],
-]).resize();
-
-const parsedFormTtlMinutes = Number(process.env.FORM_TTL_MINUTES);
-const FORM_TTL_MINUTES = Number.isFinite(parsedFormTtlMinutes) && parsedFormTtlMinutes > 0
-    ? parsedFormTtlMinutes
-    : 60;
-const parsedLoaderIntervalMs = Number(process.env.LOADER_INTERVAL_MS);
-const LOADER_INTERVAL_MS = Number.isFinite(parsedLoaderIntervalMs) && parsedLoaderIntervalMs >= 1000
-    ? parsedLoaderIntervalMs
-    : 4000;
-const parsedColdStartHintWindowSeconds = Number(process.env.COLD_START_HINT_WINDOW_SECONDS);
-const COLD_START_HINT_WINDOW_MS = Number.isFinite(parsedColdStartHintWindowSeconds) && parsedColdStartHintWindowSeconds > 0
-    ? parsedColdStartHintWindowSeconds * 1000
-    : 180000;
+const HELP_MESSAGE = buildHelpMessage(NEAR_MATCH_PERCENT);
 const PROCESS_STARTED_AT = Date.now();
-const warmupHintedUsers = new Set();
-const MAX_PRICE = 99999999999999.9999;
-
-function parseSupportedCurrencies(value) {
-    const currencies = String(value || '')
-        .split(',')
-        .map((item) => normalizeCurrency(item))
-        .filter(Boolean)
-        .filter((item) => /^[A-Z0-9]{2,10}$/.test(item));
-
-    const uniqueCurrencies = [...new Set(currencies)];
-    return uniqueCurrencies.length ? uniqueCurrencies : DEFAULT_SUPPORTED_CURRENCIES;
-}
-
-function createCurrencyKeyboard(currencies) {
-    const rows = [];
-
-    for (let index = 0; index < currencies.length; index += MAX_CURRENCY_BUTTONS_PER_ROW) {
-        rows.push(currencies.slice(index, index + MAX_CURRENCY_BUTTONS_PER_ROW));
-    }
-
-    rows.push([MENU_BUTTONS.cancel]);
-
-    return Markup.keyboard(rows).resize();
-}
-
-const SUPPORTED_CURRENCIES = parseSupportedCurrencies(process.env.SUPPORTED_CURRENCIES);
-const CURRENCY_KEYBOARD = createCurrencyKeyboard(SUPPORTED_CURRENCIES);
-const TRANSFER_TYPE_KEYBOARD = Markup.keyboard([
-    TRANSFER_TYPE_OPTIONS.map((item) => item.label),
-    [MENU_BUTTONS.cancel],
-]).resize();
-
-function normalizeMenuText(value) {
-    return String(value || '')
-        .normalize('NFKC')
-        .replace(/\uFE0F/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase();
-}
-
-const BUTTON_ACTION_MAP = new Map([
-    [normalizeMenuText(MENU_BUTTONS.sell), 'sell'],
-    [normalizeMenuText(MENU_BUTTONS.buy), 'buy'],
-    [normalizeMenuText(MENU_BUTTONS.market), 'market'],
-    [normalizeMenuText(MENU_BUTTONS.myListings), 'my_listings'],
-    [normalizeMenuText(MENU_BUTTONS.help), 'help'],
-    [normalizeMenuText(MENU_BUTTONS.cancel), 'cancel'],
-]);
-
-const BUTTON_ACTION_ALIASES = new Map([
-    ['sell', 'sell'],
-    ['buy', 'buy'],
-    ['market', 'market'],
-    ['browse market', 'market'],
-    ['my listings', 'my_listings'],
-    ['my listing', 'my_listings'],
-    ['help', 'help'],
-    ['cancel', 'cancel'],
-    ['cancel form', 'cancel'],
-]);
-
-const TRANSFER_TYPE_VALUE_BY_INPUT = new Map(
-    TRANSFER_TYPE_OPTIONS.flatMap((item) => ([
-        [normalizeMenuText(item.label), item.value],
-        [normalizeMenuText(item.value), item.value],
-    ]))
-);
-
-function resolveMenuAction(rawText) {
-    const normalized = normalizeMenuText(rawText);
-    return BUTTON_ACTION_MAP.get(normalized) || BUTTON_ACTION_ALIASES.get(normalized) || null;
-}
-
-function summarizeIncomingText(text) {
-    const trimmed = String(text || '').trim();
-
-    if (!trimmed) {
-        return 'empty';
-    }
-
-    if (trimmed.startsWith('/')) {
-        return trimmed.split(/\s+/, 1)[0];
-    }
-
-    const menuAction = resolveMenuAction(trimmed);
-
-    if (menuAction) {
-        return `button:${menuAction}`;
-    }
-
-    return `text:${trimmed.length}chars`;
-}
-
-const START_MESSAGE = [
-    '👋 Welcome to Currency Exchange Bot!',
-    '',
-    'Quick start:',
-    '1) Tap 🟢 Sell currency to publish a sell offer.',
-    '2) Tap 🔵 Buy currency to publish a buy request.',
-    '3) Tap 📊 Browse market to see current listings.',
-    '4) Tap 🗂 My listings to manage your active posts.',
-    '',
-    'Use the buttons below (you do not need to memorize commands).',
-].join('\n');
-
-const HELP_MESSAGE = [
-    '🤖 Currency Exchange Bot',
-    '',
-    'Main actions (buttons):',
-    '• 🟢 Sell currency',
-    '• 🔵 Buy currency',
-    '• 📊 Browse market',
-    '• 🗂 My listings',
-    '',
-    'Commands (optional):',
-    '/sell - Post a sell offer',
-    '/buy - Post a buy request',
-    '/my_listings - View your active listings',
-    '/delete <id> - Close a listing',
-    '/market - View recent listings',
-    '/cancel - Cancel current form',
-    '/menu - Show menu buttons',
-    '/help - Show this help message',
-    '',
-    `Matching looks for exact and near matches (up to ${NEAR_MATCH_PERCENT}% price difference).`,
-].join('\n');
+const warmupHintedUsers = new Map();
 
 function getContextState(ctx) {
     if (!ctx.state || typeof ctx.state !== 'object') {
@@ -232,6 +59,28 @@ function getContextState(ctx) {
     }
 
     return ctx.state;
+}
+
+function getFlowByType(type) {
+    return type === 'sell' ? SELL_STEPS : BUY_STEPS;
+}
+
+function getCurrentStepPrompt(form) {
+    if (!form) {
+        return null;
+    }
+
+    const flow = getFlowByType(form.type);
+    return flow[form.step]?.prompt || null;
+}
+
+function getCurrentStepKey(form) {
+    if (!form) {
+        return null;
+    }
+
+    const flow = getFlowByType(form.type);
+    return flow[form.step]?.key || null;
 }
 
 async function getActiveForm(ctx) {
@@ -327,265 +176,16 @@ async function ensureInteractiveUserContext(ctx) {
     return false;
 }
 
-function getFlowByType(type) {
-    return type === 'sell' ? SELL_STEPS : BUY_STEPS;
-}
-
-function getCurrentStepPrompt(form) {
-    if (!form) {
-        return null;
-    }
-
-    const flow = getFlowByType(form.type);
-    return flow[form.step]?.prompt || null;
-}
-
-function getCurrentStepKey(form) {
-    if (!form) {
-        return null;
-    }
-
-    const flow = getFlowByType(form.type);
-    return flow[form.step]?.key || null;
-}
-
-function getKeyboardForStep(stepKey) {
-    if (stepKey === 'currency') {
-        return CURRENCY_KEYBOARD;
-    }
-
-    if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
-        return TRANSFER_TYPE_KEYBOARD;
-    }
-
-    return FORM_KEYBOARD;
-}
-
-function getStepInstruction(stepKey) {
-    if (stepKey === 'currency') {
-        return '👇 Tap one of the currency buttons below.';
-    }
-
-    if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
-        return '👇 Tap your preferred transfer type below.';
-    }
-
-    return '✍️ Reply by typing your answer as a normal message.';
-}
-
-function getStepRetryInstruction(stepKey) {
-    if (stepKey === 'currency') {
-        return '👇 Please choose one of the currency buttons below, or tap ❌ Cancel form.';
-    }
-
-    if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
-        return '👇 Please choose bank transfer or cash, or tap ❌ Cancel form.';
-    }
-
-    return '✍️ Please type your answer, or tap ❌ Cancel form.';
-}
-
-function formatListingDate(value) {
-    const parsedDate = new Date(value);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-        return 'Unknown date';
-    }
-
-    return parsedDate.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-    });
-}
-
-function formatListingAge(value) {
-    const timestamp = Date.parse(value);
-
-    if (!Number.isFinite(timestamp)) {
-        return 'unknown age';
-    }
-
-    const elapsedMs = Math.max(0, Date.now() - timestamp);
-    const elapsedMinutes = Math.floor(elapsedMs / 60000);
-
-    if (elapsedMinutes < 1) {
-        return 'just now';
-    }
-
-    if (elapsedMinutes < 60) {
-        return `${elapsedMinutes}m ago`;
-    }
-
-    const elapsedHours = Math.floor(elapsedMinutes / 60);
-
-    if (elapsedHours < 24) {
-        return `${elapsedHours}h ago`;
-    }
-
-    const elapsedDays = Math.floor(elapsedHours / 24);
-
-    if (elapsedDays < 7) {
-        return `${elapsedDays}d ago`;
-    }
-
-    const elapsedWeeks = Math.floor(elapsedDays / 7);
-
-    if (elapsedWeeks < 5) {
-        return `${elapsedWeeks}w ago`;
-    }
-
-    const elapsedMonths = Math.floor(elapsedDays / 30);
-
-    if (elapsedMonths < 12) {
-        return `${elapsedMonths}mo ago`;
-    }
-
-    const elapsedYears = Math.floor(elapsedDays / 365);
-    return `${elapsedYears}y ago`;
-}
-
-function getSellListingDetail(listing) {
-    if (listing.transactionType) {
-        return `Preferred transfer: ${listing.transactionType}`;
-    }
-
-    if (listing.description) {
-        return `Details: ${listing.description}`;
-    }
-
-    return 'Preferred transfer: Not specified';
-}
-
-function formatPrice(price) {
-    const amount = Number(price);
-    return Number.isFinite(amount)
-        ? amount.toLocaleString('en-US', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 4,
-        })
-        : String(price);
-}
-
-function formatPercent(value) {
-    const sign = value > 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}%`;
-}
-
-function getUserDisplayName(from) {
-    const fullName = [from.first_name, from.last_name].filter(Boolean).join(' ').trim();
-    if (fullName) {
-        return fullName;
-    }
-
-    if (from.username) {
-        return `@${from.username}`;
-    }
-
-    return `User ${from.id}`;
-}
-
-function parsePrice(text) {
-    const normalized = text.trim().replace(/\s+/g, '').replace(',', '.');
-
-    if (!/^\d+(\.\d{1,4})?$/.test(normalized)) {
-        return null;
-    }
-
-    const value = Number(normalized);
-
-    if (!Number.isFinite(value) || value <= 0 || value > MAX_PRICE) {
-        return null;
-    }
-
-    return Number(value.toFixed(4));
-}
-
-function normalizeCurrency(text) {
-    return text.trim().toUpperCase();
-}
-
-function validateStep(key, value) {
-    const text = value.trim();
-
-    if (!text) {
-        return { ok: false, error: 'This field cannot be empty. Please try again.' };
-    }
-
-    if (key === 'currency') {
-        const currency = normalizeCurrency(text);
-        if (!SUPPORTED_CURRENCIES.includes(currency)) {
-            return {
-                ok: false,
-                error: 'Invalid currency. Please choose one of the available buttons below.',
-            };
-        }
-
-        return { ok: true, value: currency };
-    }
-
-    if (key === 'price') {
-        const amount = parsePrice(text);
-
-        if (!amount) {
-            return {
-                ok: false,
-                error: 'Invalid price. Enter a number greater than 0, e.g. 39.50',
-            };
-        }
-
-        return { ok: true, value: amount };
-    }
-
-    if (key === 'contact') {
-        if (text.length < 4 || text.length > 200) {
-            return {
-                ok: false,
-                error: 'Contact must be between 4 and 200 characters.',
-            };
-        }
-
-        return { ok: true, value: text };
-    }
-
-    if (key === 'preferredTransferType' || key === 'transactionType') {
-        const transferType = TRANSFER_TYPE_VALUE_BY_INPUT.get(normalizeMenuText(text));
-
-        if (!transferType) {
-            return {
-                ok: false,
-                error: 'Invalid transfer type. Please choose bank transfer or cash.',
-            };
-        }
-
-        return { ok: true, value: transferType };
-    }
-
-    if (key === 'description' || key === 'transactionType') {
-        if (text.length < 5 || text.length > 400) {
-            return {
-                ok: false,
-                error: 'This field must be between 5 and 400 characters.',
-            };
-        }
-
-        return { ok: true, value: text };
-    }
-
-    return { ok: true, value: text };
-}
-
 function formatMarketListing(listing, index) {
     const typeLabel = listing.type === 'sell' ? 'Sell' : 'Buy';
     const detail = listing.type === 'sell'
         ? getSellListingDetail(listing)
-        : `Transaction: ${listing.transactionType || 'Not specified'}`;
+        : getBuyListingDetail(listing);
 
     return [
         `${index + 1}) #${listing.id} | ${typeLabel} ${listing.currency} @ ${formatPrice(listing.price)}`,
         detail,
+        getListingNoteLine(listing),
         `Contact: ${listing.contact}`,
         `Listed on: ${formatListingDate(listing.createdAt)} (${formatListingAge(listing.createdAt)})`,
     ].join('\n');
@@ -626,6 +226,43 @@ function startTypingLoader(ctx) {
     };
 }
 
+function startDelayedLoaderMessage(ctx) {
+    if (!ctx.chat?.id || typeof ctx.reply !== 'function' || LOADER_MESSAGE_DELAY_MS <= 0) {
+        return async () => { };
+    }
+
+    let stopped = false;
+    let loaderMessageId;
+
+    const timer = setTimeout(async () => {
+        if (stopped) {
+            return;
+        }
+
+        try {
+            const sentMessage = await ctx.reply('⏳ Processing your request...');
+            loaderMessageId = sentMessage?.message_id;
+        } catch (_error) {
+            // Ignore loader message errors.
+        }
+    }, LOADER_MESSAGE_DELAY_MS);
+
+    return async () => {
+        stopped = true;
+        clearTimeout(timer);
+
+        if (!loaderMessageId || !ctx.telegram || !ctx.chat?.id) {
+            return;
+        }
+
+        try {
+            await ctx.telegram.deleteMessage(ctx.chat.id, loaderMessageId);
+        } catch (_error) {
+            // Ignore delete errors (message may be already deleted or not deletable).
+        }
+    };
+}
+
 async function maybeReplyColdStartHint(ctx) {
     if (Date.now() - PROCESS_STARTED_AT > COLD_START_HINT_WINDOW_MS) {
         return;
@@ -635,11 +272,14 @@ async function maybeReplyColdStartHint(ctx) {
         return;
     }
 
-    if (warmupHintedUsers.has(ctx.from.id)) {
+    const now = Date.now();
+    const lastHintAt = warmupHintedUsers.get(ctx.from.id) || 0;
+
+    if (now - lastHintAt < WARMUP_HINT_REPEAT_MS) {
         return;
     }
 
-    warmupHintedUsers.add(ctx.from.id);
+    warmupHintedUsers.set(ctx.from.id, now);
 
     try {
         await ctx.reply('⏳ Server is waking up after restart. Processing your request now...');
@@ -682,12 +322,16 @@ async function replyWithActiveFormPrompt(ctx, intro) {
 
     const currentPrompt = getCurrentStepPrompt(activeForm);
     const currentStepKey = getCurrentStepKey(activeForm);
+    const currentDraftHint = currentStepKey === 'price'
+        ? `Current price draft: ${formatPriceDraft(getPriceDraft(activeForm))}`
+        : null;
 
     await ctx.reply(
         [
             intro,
             '',
             currentPrompt || 'Continue your current form.',
+            ...(currentDraftHint ? ['', currentDraftHint] : []),
             '',
             getStepRetryInstruction(currentStepKey),
         ].join('\n'),
@@ -736,7 +380,8 @@ async function notifyUsersForBuy(ctx, buyListing, matches) {
                     `Currency: ${buyListing.currency}`,
                     `Buyer's price: ${formatPrice(buyListing.price)}`,
                     `Buyer's contact: ${buyListing.contact}`,
-                    `Transaction type: ${buyListing.transactionType}`,
+                    getBuyListingDetail(buyListing),
+                    getListingNoteLine(buyListing),
                     `Price gap: ${formatPercent(match.gapPercent)}`,
                 ].join('\n')
             );
@@ -759,6 +404,7 @@ async function notifyUsersForSell(ctx, sellListing, matches) {
                     `Seller's price: ${formatPrice(sellListing.price)}`,
                     `Seller's contact: ${sellListing.contact}`,
                     getSellListingDetail(sellListing),
+                    getListingNoteLine(sellListing),
                     `Price gap: ${formatPercent(match.gapPercent)}`,
                 ].join('\n')
             );
@@ -780,6 +426,7 @@ function formatSellerMatch(match, index) {
         `Seller's price: ${formatPrice(seller.price)}`,
         `Contact: ${seller.contact}`,
         getSellListingDetail(seller),
+        getListingNoteLine(seller),
     ].join('\n');
 }
 
@@ -794,8 +441,119 @@ function formatBuyerMatch(match, index) {
         `Ref: #${buyer.id}`,
         `Buyer's price: ${formatPrice(buyer.price)}`,
         `Contact: ${buyer.contact}`,
-        `Transaction type: ${buyer.transactionType || 'Not specified'}`,
+        getBuyListingDetail(buyer),
+        getListingNoteLine(buyer),
     ].join('\n');
+}
+
+function findMatchesForListing(listing, sellerListings, buyerListings, limit = 3) {
+    if (listing.type === 'buy') {
+        return findSellersForBuyer(
+            listing,
+            sellerListings.filter((item) => item.userId !== listing.userId),
+            limit
+        );
+    }
+
+    return findBuyersForSeller(
+        listing,
+        buyerListings.filter((item) => item.userId !== listing.userId),
+        limit
+    );
+}
+
+function formatListingReference(listing) {
+    const typeLabel = listing.type === 'sell' ? 'Sell' : 'Buy';
+    return `🧾 ${typeLabel} #${listing.id} | ${listing.currency} @ ${formatPrice(listing.price)}`;
+}
+
+function buildReplyChunks(sections, maxLength = 3500) {
+    const chunks = [];
+    let currentChunk = '';
+
+    for (const section of sections) {
+        const candidate = currentChunk ? `${currentChunk}\n\n${section}` : section;
+
+        if (candidate.length <= maxLength) {
+            currentChunk = candidate;
+            continue;
+        }
+
+        if (currentChunk) {
+            chunks.push(currentChunk);
+        }
+
+        currentChunk = section;
+    }
+
+    if (currentChunk) {
+        chunks.push(currentChunk);
+    }
+
+    return chunks;
+}
+
+async function showManualMatches(ctx) {
+    const userListings = await getUserListings(ctx.from.id);
+
+    if (!userListings.length) {
+        await ctx.reply('You have no active listings to match.', MAIN_MENU_KEYBOARD);
+        return;
+    }
+
+    const [sellerListings, buyerListings] = await Promise.all([
+        getActiveListings('sell'),
+        getActiveListings('buy'),
+    ]);
+
+    const matchedSections = [];
+    let unmatchedListings = 0;
+
+    for (const listing of userListings) {
+        const matches = findMatchesForListing(listing, sellerListings, buyerListings, 3);
+
+        if (!matches.length) {
+            unmatchedListings += 1;
+            continue;
+        }
+
+        const formattedMatches = matches.map((match, index) => (
+            listing.type === 'buy'
+                ? formatSellerMatch(match, index)
+                : formatBuyerMatch(match, index)
+        ));
+
+        matchedSections.push([
+            formatListingReference(listing),
+            '',
+            ...formattedMatches,
+        ].join('\n\n'));
+    }
+
+    if (!matchedSections.length) {
+        await ctx.reply(
+            `🔎 I checked ${userListings.length} active listing(s). No matches found right now.`,
+            MAIN_MENU_KEYBOARD
+        );
+        return;
+    }
+
+    const summaryLines = [
+        `🔎 I checked ${userListings.length} active listing(s).`,
+        `Matches found for ${matchedSections.length} listing(s).`,
+    ];
+
+    if (unmatchedListings) {
+        summaryLines.push(`${unmatchedListings} listing(s) currently have no matches.`);
+    }
+
+    await ctx.reply(summaryLines.join('\n'), MAIN_MENU_KEYBOARD);
+
+    const replyChunks = buildReplyChunks(matchedSections);
+
+    for (const chunk of replyChunks) {
+        await ctx.reply(chunk, MAIN_MENU_KEYBOARD);
+    }
 }
 
 async function runMatching(ctx, newListing) {
@@ -867,18 +625,45 @@ async function processFlowText(ctx, text) {
         return;
     }
 
-    const validation = validateStep(current.key, text);
+    let stepValue;
 
-    if (!validation.ok) {
-        await ctx.reply(
-            `${validation.error}\n\n${getStepRetryInstruction(current.key)}`,
-            getKeyboardForStep(current.key)
-        );
-        return;
+    if (current.key === 'price') {
+        const priceInput = handlePriceStepInput(form, text);
+
+        if (priceInput.kind !== 'confirmed') {
+            if (Object.prototype.hasOwnProperty.call(priceInput, 'draft')) {
+                form.data.priceDraft = priceInput.draft;
+                await persistForm(ctx, form);
+            }
+
+            await ctx.reply(
+                `${priceInput.message}\n\n${getStepRetryInstruction(current.key)}`,
+                getKeyboardForStep(current.key)
+            );
+            return;
+        }
+
+        stepValue = priceInput.value;
+    } else {
+        const validation = validateStep(current.key, text);
+
+        if (!validation.ok) {
+            await ctx.reply(
+                `${validation.error}\n\n${getStepRetryInstruction(current.key)}`,
+                getKeyboardForStep(current.key)
+            );
+            return;
+        }
+
+        stepValue = validation.value;
     }
 
     const isFinalStep = form.step >= flow.length - 1;
-    form.data[current.key] = validation.value;
+    form.data[current.key] = stepValue;
+
+    if (current.key === 'price') {
+        delete form.data.priceDraft;
+    }
 
     if (!isFinalStep) {
         form.step += 1;
@@ -895,7 +680,7 @@ async function processFlowText(ctx, text) {
         currency: form.data.currency,
         price: form.data.price,
         contact: form.data.contact,
-        description: null,
+        description: form.data.note || null,
         transactionType: form.type === 'buy' ? form.data.transactionType : form.data.preferredTransferType,
         userId: ctx.from.id,
         chatId: ctx.chat.id,
@@ -907,7 +692,7 @@ async function processFlowText(ctx, text) {
 
     const summaryDetail = listing.type === 'sell'
         ? getSellListingDetail(listing)
-        : `Transaction type: ${listing.transactionType || 'Not specified'}`;
+        : getBuyListingDetail(listing);
 
     await ctx.reply(
         [
@@ -915,6 +700,7 @@ async function processFlowText(ctx, text) {
             `Currency: ${listing.currency}`,
             `Price: ${formatPrice(listing.price)}`,
             summaryDetail,
+            getListingNoteLine(listing),
             '',
             'You can close your listing anytime with /delete <id>.',
         ].join('\n'),
@@ -927,7 +713,6 @@ async function processFlowText(ctx, text) {
 function createBot(token) {
     const bot = new Telegraf(token);
 
-    // Global diagnostic middleware — logs every incoming update
     bot.use(async (ctx, next) => {
         const updateType = ctx.updateType;
         const text = ctx.message?.text || '';
@@ -936,6 +721,7 @@ function createBot(token) {
         console.log(`[update] type=${updateType} chat=${chatType} user=${userId} input=${summarizeIncomingText(text)}`);
 
         const stopTypingLoader = startTypingLoader(ctx);
+        const stopDelayedLoaderMessage = startDelayedLoaderMessage(ctx);
 
         try {
             await maybeReplyColdStartHint(ctx);
@@ -945,6 +731,7 @@ function createBot(token) {
             throw err;
         } finally {
             stopTypingLoader();
+            await stopDelayedLoaderMessage();
         }
     });
 
@@ -1018,6 +805,14 @@ function createBot(token) {
         );
     };
 
+    const handleMatches = async (ctx) => {
+        if (!(await ensureInteractiveUserContext(ctx))) {
+            return;
+        }
+
+        await showManualMatches(ctx);
+    };
+
     const routeMenuAction = async (ctx, action) => {
         if (action === 'sell') {
             await handleSell(ctx);
@@ -1036,6 +831,11 @@ function createBot(token) {
 
         if (action === 'my_listings') {
             await handleMyListings(ctx);
+            return;
+        }
+
+        if (action === 'matches') {
+            await handleMatches(ctx);
             return;
         }
 
@@ -1079,9 +879,7 @@ function createBot(token) {
     });
 
     bot.command('sell', handleSell);
-
     bot.command('buy', handleBuy);
-
     bot.command('cancel', handleCancel);
 
     bot.command('market', async (ctx) => {
@@ -1100,6 +898,14 @@ function createBot(token) {
         await handleMyListings(ctx);
     });
 
+    bot.command('matches', async (ctx) => {
+        if (await replyWithActiveFormPrompt(ctx, 'You already have an active form.')) {
+            return;
+        }
+
+        await handleMatches(ctx);
+    });
+
     bot.command('delete', async (ctx) => {
         if (!(await ensureInteractiveUserContext(ctx))) {
             return;
@@ -1114,6 +920,12 @@ function createBot(token) {
         }
 
         const id = args[0].replace('#', '');
+
+        if (!LISTING_ID_RE.test(id)) {
+            await ctx.reply('Invalid listing ID format. Example: /delete abc12345', MAIN_MENU_KEYBOARD);
+            return;
+        }
+
         const result = await closeListing(id, ctx.from.id);
 
         if (!result.ok) {
@@ -1159,9 +971,11 @@ function createBot(token) {
                     await startFlow(ctx, menuAction);
                     return;
                 }
+
+                const activeStepKey = getCurrentStepKey(activeForm);
                 await ctx.reply(
                     'You are filling out a form now. Type your answer, or tap "❌ Cancel form" to exit.',
-                    FORM_KEYBOARD
+                    getKeyboardForStep(activeStepKey)
                 );
                 return;
             }

@@ -20,6 +20,7 @@ const BOT_COMMANDS = [
     { command: 'buy', description: 'Create a buy request' },
     { command: 'market', description: 'Browse market listings' },
     { command: 'my_listings', description: 'View your active listings' },
+    { command: 'matches', description: 'Re-check matches for your listings' },
     { command: 'delete', description: 'Close a listing by ID' },
     { command: 'cancel', description: 'Cancel current form' },
     { command: 'help', description: 'Show help' },
