@@ -23,7 +23,6 @@ const {
     COLD_START_HINT_WINDOW_MS,
     LOADER_MESSAGE_DELAY_MS,
     WARMUP_HINT_REPEAT_MS,
-    LISTING_ID_RE,
 } = require('./botConfig');
 const {
     MAIN_MENU_KEYBOARD,
@@ -777,7 +776,7 @@ function createBot(token) {
                 '',
                 ...lines,
                 '',
-                'To close one use /delete <id>.',
+                'To close one use /delete <id> or /delete <number from this list>.',
             ].join('\n'),
             MAIN_MENU_KEYBOARD
         );
@@ -893,15 +892,62 @@ function createBot(token) {
         const args = text.trim().split(/\s+/).slice(1);
 
         if (!args[0]) {
-            await ctx.reply('You must provide the ID. Example: /delete abc12345', MAIN_MENU_KEYBOARD);
+            await ctx.reply('You must provide an ID or list number. Example: /delete abc12345 or /delete 1', MAIN_MENU_KEYBOARD);
             return;
         }
 
-        const id = args[0].replace('#', '');
+        const rawTarget = String(args[0] || '').trim();
+        const cleanedTarget = rawTarget
+            .replace(/^#/, '')
+            .replace(/[.,;:!?|)\]]+$/g, '');
 
-        if (!LISTING_ID_RE.test(id)) {
+        let id = cleanedTarget;
+        const ownListings = await getUserListings(ctx.from.id, { includeClosed: true });
+        const ownActiveListings = ownListings.filter((item) => item.isActive);
+
+        if (/^\d+$/.test(cleanedTarget)) {
+            const index = Number(cleanedTarget);
+            const visibleListings = ownActiveListings.slice(0, 20);
+
+            if (!visibleListings.length) {
+                await ctx.reply('You have no active listings to delete.', MAIN_MENU_KEYBOARD);
+                return;
+            }
+
+            if (!Number.isInteger(index) || index < 1 || index > visibleListings.length) {
+                await ctx.reply(
+                    `Invalid list number. Use a number between 1 and ${visibleListings.length}, or use /delete <id>.`,
+                    MAIN_MENU_KEYBOARD
+                );
+                return;
+            }
+
+            id = visibleListings[index - 1].id;
+        }
+
+        id = String(id || '').trim().toLowerCase();
+
+        if (!/^[a-z0-9-]{6,40}$/i.test(id)) {
             await ctx.reply('Invalid listing ID format. Example: /delete abc12345', MAIN_MENU_KEYBOARD);
             return;
+        }
+
+        if (!/^\d+$/.test(cleanedTarget)) {
+            const ownListingById = ownListings.find(
+                (item) => String(item.id).toLowerCase() === id
+            );
+
+            if (!ownListingById) {
+                await ctx.reply('No listing found with that ID in your account.', MAIN_MENU_KEYBOARD);
+                return;
+            }
+
+            if (!ownListingById.isActive) {
+                await ctx.reply('That listing was already closed.', MAIN_MENU_KEYBOARD);
+                return;
+            }
+
+            id = ownListingById.id;
         }
 
         const result = await closeListing(id, ctx.from.id);
@@ -913,7 +959,7 @@ function createBot(token) {
             }
 
             if (result.reason === 'forbidden') {
-                await ctx.reply('That listing does not belong to you.', MAIN_MENU_KEYBOARD);
+                await ctx.reply('No listing found with that ID in your account.', MAIN_MENU_KEYBOARD);
                 return;
             }
 

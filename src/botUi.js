@@ -160,7 +160,7 @@ function getStepInstruction(stepKey) {
     }
 
     if (stepKey === 'contact') {
-        return '📞 Type: person name + phone number, email, or Telegram username (@username).';
+        return '🧩 Example: Jose +1 212 555 0199';
     }
 
     if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
@@ -184,7 +184,7 @@ function getStepRetryInstruction(stepKey) {
     }
 
     if (stepKey === 'contact') {
-        return '📞 Please enter: person name + phone number, email, or Telegram username (@username).';
+        return '📞 Use format: Name + phone, email, or @username.';
     }
 
     if (stepKey === 'preferredTransferType' || stepKey === 'transactionType') {
